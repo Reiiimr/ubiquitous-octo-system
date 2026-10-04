@@ -354,6 +354,8 @@ Test these checks against the deployed HTTPS URL:
   [ ] GET /api/v1/health returns HTTP 200 and {"ok":true}.
       A database connection error means DATABASE_URL, role grants, migration,
       or network settings need attention.
+      The login page's "Database / development testing" link runs this
+      read-only check; it does not verify account login or database writes.
 
   [ ] Open /login.html and sign in using the changed staff credentials.
 

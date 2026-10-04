@@ -62,6 +62,13 @@ function safeJson(text: string): unknown {
   try { return JSON.parse(text); } catch { throw badRequest('Request body must be valid JSON.'); }
 }
 
+function safeLogPath(req: Req): string {
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  return pathname
+    .replace(/(\/accounts\/)[^/]+/g, '$1:key')
+    .replace(/(\/records\/)[^/]+/g, '$1:dataset');
+}
+
 /** Blocks cross-site writes: the browser Origin must match this host or ALLOWED_ORIGINS. */
 function checkOrigin(req: Req): void {
   const cfg = config();
@@ -118,11 +125,32 @@ export function route(handlers: Partial<Record<Method, Handler>>, opts: { cache?
       if (method !== 'GET') checkOrigin(req);
       const body = method === 'GET' || method === 'DELETE' && !req.headers['content-length'] ? undefined : await readBody(req);
       const reply = await h({ req, id, ip: clientIp(req), query: normalizeQuery(req), body });
+      const outcome = reply.body as { changed?: unknown } | null;
+      if (method !== 'GET' && outcome && outcome.changed === 0) {
+        console.warn(JSON.stringify({
+          requestId: id,
+          level: 'warn',
+          event: 'write_no_rows_changed',
+          method,
+          path: safeLogPath(req),
+        }));
+      }
       send(reply.status, reply.body, { ...cors, ...reply.headers });
     } catch (e) {
       const app = e instanceof AppError ? e : e instanceof ZodError ? zodToApp(e) : fromDb(e);
+      const method = (req.method ?? 'GET').toUpperCase();
+      const databaseCode = (e as { code?: unknown } | null)?.code;
+      console.error(JSON.stringify({
+        requestId: id,
+        level: 'error',
+        event: method === 'GET' ? 'api_request_failed' : 'write_request_failed',
+        method,
+        path: safeLogPath(req),
+        status: app?.status ?? 500,
+        errorCode: app?.code ?? 'INTERNAL',
+        ...(typeof databaseCode === 'string' && /^[0-9A-Z]{5}$/.test(databaseCode) ? { databaseCode } : {}),
+      }));
       if (app) return send(app.status, { error: { code: app.code, message: app.message, details: app.details, requestId: id } });
-      console.error(JSON.stringify({ requestId: id, level: 'error', message: (e as Error)?.message, code: (e as { code?: string })?.code }));
       send(500, { error: { code: 'INTERNAL', message: 'Something went wrong on the server.', requestId: id } });
     }
   };

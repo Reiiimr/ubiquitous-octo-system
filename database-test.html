@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><script src="theme.js"></script>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<title>Database check — City Veterinary Office</title>
+<link href="favicon.png" rel="icon" type="image/png"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="styles.css" rel="stylesheet"/>
+</head>
+<body class="login-page">
+<main class="login-main">
+<section class="login-card" aria-labelledby="database-test-title">
+<img class="login-logo" src="images.jpg" alt="City Veterinary Office logo"/>
+<p class="login-eyebrow">City Veterinary Office · San Jose del Monte</p>
+<h1 id="database-test-title">Database check</h1>
+<p class="login-intro">Run a read-only connection check between this site, its API, and the database.</p>
+<p id="database-test-status" class="login-intro" role="status" aria-live="polite">Not checked yet.</p>
+<p class="login-intro">This check does not create, change, or delete database records. It does not verify account sign-in or write permissions.</p>
+<button id="database-test-run" class="cv-btn primary login-submit" type="button">Run connection check</button>
+<p class="login-intro"><a href="login.html">Back to sign in</a></p>
+</section>
+</main>
+<script src="database-test.js"></script>
+</body>
+</html>
