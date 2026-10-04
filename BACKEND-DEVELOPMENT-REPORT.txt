@@ -1,0 +1,455 @@
+CITYVET BACKEND DEVELOPMENT REPORT
+Date: 2026-10-04
+Project: Current CityVet dashboard (index.html)
+Hosting target: Vercel serverless functions
+Database target: Supabase PostgreSQL
+
+
+1. EXECUTIVE SUMMARY
+====================
+
+The current dashboard was connected to a same-origin Vercel API backed by
+Supabase PostgreSQL. The existing custom authentication/session design was
+preserved: the API uses a restricted PostgreSQL login role, password hashes
+stored in the database, and an HttpOnly signed-session cookie.
+
+The dashboard's current data modules now have an API and persistence path for
+their operational records. This includes:
+
+  - Owners
+  - Pets
+  - Paravets
+  - Census respondents
+  - Households visited
+  - Census animals
+  - Stubs
+  - Services
+  - Programs
+  - Program-day participants
+  - Staff activity log
+  - Public owner pre-listings
+
+The existing sign-in, account, and barangay API work remains the authentication
+and reference-data foundation.
+
+The separate/older app.js clinic workflow was explicitly excluded from this
+connection. It remains a browser-local prototype and is not connected to these
+new dashboard endpoints.
+
+This is application and database integration work, not a deployment to a real
+Supabase project. No API keys, database credentials, or JWT secrets were
+available in the project folder, and no Vercel project was accessed or
+deployed.
+
+
+2. ARCHITECTURE AND CONNECTION FLOW
+===================================
+
+Browser dashboard
+    |
+    | same-origin HTTPS requests; HttpOnly session cookie
+    v
+Vercel serverless functions under /api/v1
+    |
+    | DATABASE_URL (server-side only)
+    v
+Supabase PostgreSQL, schema ekapon
+
+The browser does not connect directly to Supabase and does not use a Supabase
+anonymous key. This preserves the established server-side authentication and
+database access pattern. Supabase's Transaction Pooler URL is intended for the
+Vercel function's DATABASE_URL setting.
+
+The dashboard uses a constrained JSONB record store for operational rows.
+Every write goes through the API's explicit dataset allowlist; request data
+does not determine a SQL table or column name. The JSONB storage was chosen as
+a compatibility bridge because the current dashboard's data shapes differ
+from the separate, unfinished Prisma model in schema.prisma.
+
+
+3. DATABASE WORK
+================
+
+3.1 Fresh-install schema
+-----------------------
+
+Added db/000_ekapon_schema.sql as the fresh-install bootstrap. It defines the
+existing authentication/account database requirements, reference data, and
+the current dashboard persistence requirements.
+
+The bootstrap includes:
+
+  - ekapon schema, account and account-status types
+  - Official barangay reference list (62 records)
+  - Account, login-attempt, temporary-credential, audit, and settings tables
+  - Password verification and temporary-password functions
+  - Account key generation, mobile normalization, audit triggers, and
+    account archive functions
+  - Dashboard operational JSONB records with a fixed dataset allowlist
+  - Import batch/item tracking used to support controlled import undo
+  - Public pre-listing records and associated input constraints
+  - A unique active-program-per-barangay-and-date index
+  - Database role grants for ekapon_admin
+  - Sample admin and encoder accounts with bcrypt hashes
+
+The sample staff records are for initial/test setup only. Change their
+passwords before public use. The migration source has no production credentials
+or API-role password.
+
+3.2 Existing-install dashboard upgrade
+--------------------------------------
+
+Added db/003_dashboard_records.sql for installations that already have the
+earlier auth/accounts schema. It adds the dashboard record/import/pre-listing
+tables, indexes, audit triggers, and database grants without dropping existing
+tables or data.
+
+db/002_fix_verify_password.sql remains the compatibility patch for older
+auth-schema installations that need the password-verification fix.
+
+db/001_create_api_role.sql remains the step that creates the restricted
+ekapon_api login. Its password must be changed by the project owner before
+running it; the chosen password must match the password in DATABASE_URL.
+
+IMPORTANT: Do not apply the fresh-install schema on top of an existing
+installation. Follow the fresh-install or upgrade path in README-BACKEND.md.
+
+3.3 Record and access model
+--------------------------
+
+The dataset names accepted by the new records API are:
+
+  owners, pets, paravets, respondents, households, animals, stubs, services,
+  programs, participants
+
+Records have a stable string/numeric UI id, a JSON object body, and an
+archived flag. IDs are constrained to 1-100 characters; each incoming record
+is limited to 20 KB; API record batches are bounded.
+
+This is persistence, not a completed normalized veterinary data model. The
+database does not yet enforce all domain-specific relationships or field rules
+for owners, pets, services, programs, and participants. Row-level
+tenant/barangay access policies have not been implemented.
+
+
+4. API ENDPOINTS IMPLEMENTED/AVAILABLE
+=======================================
+
+Existing API endpoints retained:
+
+  GET    /api/v1/health
+  GET    /api/v1/barangays
+  POST   /api/v1/auth/login
+  POST   /api/v1/auth/first-signin
+  POST   /api/v1/auth/set-password
+  POST   /api/v1/auth/logout
+  GET    /api/v1/auth/me
+  GET    /api/v1/accounts
+  POST   /api/v1/accounts
+  GET    /api/v1/accounts/{key-or-id}
+  PATCH  /api/v1/accounts/{key-or-id}
+  DELETE /api/v1/accounts/{key-or-id}
+  POST   /api/v1/accounts/{key}/reset-password
+  POST   /api/v1/accounts/archive
+
+Dashboard data endpoints added:
+
+  GET  /api/v1/records/{dataset}
+       Supports page, pageSize and archived=false|true|all.
+       Returns data, page, pageSize and total. Archived rows include an
+       _archived marker when archived=all is requested.
+
+  POST /api/v1/records/{dataset}
+       Upserts records supplied as { records: [...] }.
+       Used by dashboard program and physical-stub creation.
+
+  POST /api/v1/records/{dataset}/archive
+       Archives/restores records supplied as { ids: [...], archived: boolean }.
+
+  POST /api/v1/records/{dataset}/import
+       Persists a CSV import batch and records prior row values so an import
+       can be undone safely.
+
+  POST /api/v1/records/{dataset}/undo-import
+       Restores a prior import only when imported rows have not subsequently
+       changed. Repeated undo and undoing another staff member's import are
+       rejected.
+
+Activity endpoints added:
+
+  GET  /api/v1/activity
+       Lists activity entries for authorized staff.
+
+  POST /api/v1/activity
+       Writes an activity entry for the signed-in staff member.
+
+Public pre-listing endpoints added:
+
+  POST /api/v1/prelistings
+       Accepts owner name, mobile, official barangay, program, and 1-10 pets.
+       Returns a public reference value.
+
+  GET  /api/v1/prelistings
+       Lists submissions for authorized Admin/Encoder accounts.
+
+Dashboard record writes, archive operations, imports, undo operations,
+activity reads/writes, and staff pre-listing reads require an Admin or Encoder
+session and same-origin write protection. Public pre-listing submission
+requires no staff session, but its values are validated on the server.
+
+
+5. FRONTEND INTEGRATION
+=======================
+
+5.1 API client
+--------------
+
+Updated api-client.js to:
+
+  - Probe /api/v1/health to determine whether the API is reachable.
+  - Use same-origin credentials so the HttpOnly session cookie accompanies API
+    requests.
+  - Load account, dashboard record, activity, pre-listing, and barangay data
+    from the API in authenticated live mode.
+  - Load paginated record results from the API.
+  - Save program and stub records through the records API.
+  - Persist archive/restore actions through the API.
+  - Apply batched imports and request guarded server-side import undo.
+  - Surface API failures to the dashboard instead of silently converting them
+    into successful local writes.
+
+When the API is unavailable, the current application retains the existing
+browser-only demonstration mode. Demo seed data must not be treated as
+production data.
+
+5.2 Dashboard datasets
+----------------------
+
+Updated lists.js so the live dashboard obtains operational rows from the API,
+uses backend archive state, derives pre-listing rows from persisted server
+submissions, and calculates barangay summary counts from live rows and the
+official barangay reference list.
+
+The current dashboard data adapters continue to derive display-only values,
+such as program slots left/readiness and account status in the paravet view.
+
+5.3 Create and archive actions
+------------------------------
+
+Updated views.js so the existing program creation and physical stub entry
+forms persist records via the API in live mode. These forms continue to use
+local storage in demo mode.
+
+Updated lists.js so operational list archive/restore actions persist through
+the API in live mode. Existing account archive requests use the account
+archive endpoint.
+
+5.4 CSV import
+--------------
+
+Updated importer.js so imports in live mode write through the import API
+rather than through localStorage overlays. Import batches carry a UUID and a
+server-side undo record. The UI's Undo last import and remove-imported-data
+actions use the backend for tracked live imports.
+
+The dashboard import selector was expanded to expose the supported dashboard
+datasets, including households, census animals, stubs, services, programs,
+and program-day participants.
+
+Existing browser-local import history and the last-import pointer still
+support the UI. A remote import can only be undone from the browser where the
+import history/batch reference remains available; the underlying database
+import batch is associated with the staff actor.
+
+5.5 Public pre-listing form
+---------------------------
+
+Updated cv-data.js so prelisting.html loads the API client when needed and
+submits form records to /api/v1/prelistings when the API is live. It does not
+write a live submission into localStorage. If the API is not reachable, the
+existing demonstration-mode local submission remains available.
+
+The generated submission response reference is shown to the user. The public
+form and its user-facing language still need review as part of production
+readiness.
+
+5.6 Activity log
+----------------
+
+Updated cv-data.js, lists.js, and api-client.js so activity entries use the
+database-backed activity API in live mode and remain browser-local in demo
+mode. Activity writes are attributed to the authenticated account through the
+transaction's app.account_id setting.
+
+5.7 Environment/deployment safeguards
+-------------------------------------
+
+Added .env.example with placeholders for DATABASE_URL, JWT_SECRET, NODE_ENV,
+SESSION_HOURS, LOGIN_IP_MAX_FAILURES, and ALLOWED_ORIGINS. It contains no
+working credentials.
+
+Updated .vercelignore to keep .env and .env.* files out of Vercel uploads while
+allowing .env.example. Local credentials should be held in .env.local and must
+not be committed.
+
+
+6. DOCUMENTATION ADDED/UPDATED
+==============================
+
+README-BACKEND.md was updated with:
+
+  - Fresh Supabase setup vs existing database upgrade steps
+  - Vercel environment variable requirements
+  - PowerShell local setup instructions
+  - Current dashboard API-connected modules
+  - A warning that browser demo records are not automatically migrated
+  - Known limitations of the JSONB persistence bridge
+  - The explicit exclusion of the legacy app.js workflow
+  - The distinction between backend database credentials and public
+    Supabase client keys
+
+Added docs/API-02-dashboard.md describing dashboard record, archive/import,
+activity, and public pre-listing API contracts.
+
+
+7. VALIDATION PERFORMED
+=======================
+
+Successful checks:
+
+  - npm ci completed using the existing lock file.
+  - npm run typecheck passed after implementation.
+  - npx vitest run tests/dashboard-contract.test.ts passed: 3 tests.
+  - node --check passed for api-client.js, cv-data.js, lists.js, views.js,
+    and importer.js.
+  - A selector check confirmed every supported operational dataset appears in
+    the dashboard CSV import selector.
+
+The dashboard contract tests cover:
+
+  - Dataset allowlisting
+  - Required/stable record IDs and batch bounds
+  - Archive request validation
+
+Database-dependent verification could not be completed:
+
+  - The full npm test suite could not connect to localhost:5432. The existing
+    auth/accounts integration tests require a PostgreSQL test database.
+  - No psql executable or configured TEST_DATABASE_URL was available.
+  - The fresh-install and upgrade SQL migrations were not applied to a real
+    PostgreSQL/Supabase instance.
+  - Vercel deployment, browser-to-live-database integration, and account
+    password replacement were not performed.
+
+npm ci reported 19 dependency audit findings in the installed dependency
+tree (4 moderate, 13 high, 2 critical). Dependency upgrades/audit fixes were
+not applied as they are outside this backend-connection change and may require
+separate compatibility review.
+
+
+8. SETUP STILL REQUIRED FROM THE PROJECT OWNER
+==============================================
+
+No API keys or database credentials were present in the folder. The code
+changes do not require a Supabase anon/public key. To connect this project to
+the owner's Supabase and Vercel environments:
+
+  1. Create or select the Supabase project and determine its region.
+  2. In Supabase SQL Editor, apply the correct SQL path:
+       New database:
+         db/000_ekapon_schema.sql
+       Then, for either path:
+         Set a strong password in db/001_create_api_role.sql and run it.
+       Existing prior auth/accounts database:
+         Apply db/002_fix_verify_password.sql only if needed, then
+         db/003_dashboard_records.sql.
+  3. Change the initial admin and encoder passwords before public use.
+  4. Configure Vercel's root directory and function region as described in
+     README-BACKEND.md.
+  5. Set Vercel server-side environment variables:
+       DATABASE_URL
+         Supabase Transaction Pooler connection string (normally port 6543),
+         using the ekapon_api role and the exact password set in SQL.
+       JWT_SECRET
+         A unique random value at least 32 characters long.
+       NODE_ENV
+         Set to production by the deployment environment.
+       ALLOWED_ORIGINS
+         Leave blank for the same-origin deployment; configure only if another
+         trusted origin must access the API.
+  6. For local live testing, copy .env.example to .env.local and enter local
+     or Supabase DATABASE_URL plus a separately generated JWT_SECRET.
+  7. Run the SQL/database-backed integration suite and test the deployed
+     health, login, read, write, archive, import/undo, and pre-listing flows.
+
+Do not send database credentials or JWT secrets in chat. Enter them directly
+into the local environment file and Vercel's Environment Variables settings.
+Never commit .env.local.
+
+
+9. KNOWN LIMITATIONS AND FOLLOW-UP WORK
+=======================================
+
+  - The dashboard operational storage is JSONB, not the final normalized
+    domain schema. Domain constraints, relational links, advanced reporting
+    queries, and domain-specific validation need requirements and a future
+    migration.
+  - The current Prisma schema is a separate, unfinished data model and is not
+    used by the API. It must be reconciled before adopting Prisma for these
+    operational records.
+  - Row-level security/tenancy by barangay is not implemented. Current
+    dashboard record authorization is role-based (Admin/Encoder).
+  - CSV import history and the latest undo pointer remain browser-local UI
+    metadata. Clearing browser storage can remove the UI's reference to an
+    import batch, although the database maintains the batch data.
+  - Existing localStorage/demo records do not automatically migrate. Retained
+    data must be exported and imported deliberately after review.
+  - Some tables in the current dashboard are primarily seeded views and do
+    not have full standalone record-entry forms. Their records can be loaded
+    through CSV import or the API. Program and physical stub creation are
+    supported by existing UI forms.
+  - Notifications, report basket selections, display/theme settings, backups,
+    and some quality/import history UI state remain browser-local utilities.
+  - Public pre-listings store personal information. Retention, deletion,
+    privacy notice, access policy, and any applicable consent requirements
+    must be confirmed with the organization.
+  - Public pre-listing needs production abuse controls (Vercel WAF/rate limit,
+    CAPTCHA, or an equivalent policy) before it is advertised publicly.
+  - Login timing for unknown account identifiers and temporary-password
+    delivery by SMS/email are existing documented hardening limitations.
+  - Demo-mode fallback intentionally remains. Staff must verify that the API
+    is live and that real records load before entering production data.
+
+
+10. FILES CREATED OR MODIFIED
+=============================
+
+Created:
+  .env.example
+  api/v1/activity.ts
+  api/v1/prelistings/index.ts
+  api/v1/records/[dataset].ts
+  api/v1/records/[dataset]/archive.ts
+  api/v1/records/[dataset]/import.ts
+  api/v1/records/[dataset]/undo-import.ts
+  db/000_ekapon_schema.sql
+  db/003_dashboard_records.sql
+  docs/API-02-dashboard.md
+  server/dashboard.ts
+  tests/dashboard-contract.test.ts
+  BACKEND-DEVELOPMENT-REPORT.txt (this report)
+
+Modified:
+  .vercelignore
+  README-BACKEND.md
+  api-client.js
+  cv-data.js
+  db/001_create_api_role.sql
+  db/002_fix_verify_password.sql
+  importer.js
+  index.html
+  lists.js
+  views.js
+
+
+END OF REPORT

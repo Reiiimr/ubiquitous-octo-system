@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><script src="theme.js"></script>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<title>Sign in — City Veterinary Office</title>
+<link href="favicon.png" rel="icon" type="image/png"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="styles.css" rel="stylesheet"/>
+</head>
+<body class="login-page">
+<main class="login-main">
+<section class="login-card" aria-labelledby="login-title">
+<img class="login-logo" src="images.jpg" alt="City Veterinary Office logo"/>
+<p class="login-eyebrow">City Veterinary Office · San Jose del Monte</p>
+<h1 id="login-title">Welcome</h1>
+<p class="login-intro" data-login-note></p>
+<div class="demo-warning" role="note">Prototype only: demo credentials are stored in this browser and do not provide secure production authentication.</div>
+<p class="login-error" data-login-error aria-live="polite"></p>
+<form class="login-form" data-account-setup hidden>
+<label>Username<input name="username" type="text" autocomplete="username" minlength="3" maxlength="50" required/></label>
+<label>Name<input name="displayName" type="text" autocomplete="name" maxlength="100" required/></label>
+<label>Password<span class="password-control"><input id="setup-password" name="password" type="password" autocomplete="new-password" minlength="8" required/><button type="button" data-toggle-password="setup-password" aria-label="Show password">Show</button></span></label>
+<label>Confirm password<span class="password-control"><input id="setup-confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required/><button type="button" data-toggle-password="setup-confirm-password" aria-label="Show password">Show</button></span></label>
+<button class="cv-btn primary login-submit" type="submit">Create demo account</button>
+</form>
+<form class="login-form" data-account-login hidden>
+<label>Username<input name="username" type="text" autocomplete="username" required/></label>
+<label>Password<span class="password-control"><input id="login-password" name="password" type="password" autocomplete="current-password" required/><button type="button" data-toggle-password="login-password" aria-label="Show password">Show</button></span></label>
+<button class="cv-btn primary login-submit" type="submit">Sign in</button>
+</form>
+</section>
+</main>
+<script src="app.js"></script><script src="cv-data.js"></script><script src="dialogs.js"></script><script src="accounts.js"></script><script src="api-client.js"></script><script src="login-api.js"></script><script src="firstlogin.js"></script>
+</body>
+</html>

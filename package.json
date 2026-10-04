@@ -1,0 +1,27 @@
+{
+  "name": "ekapon-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "e-Kapon / City Vet API (Vercel serverless functions + Supabase PostgreSQL)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "vercel dev",
+    "dev:local": "tsx scripts/dev-server.ts"
+  },
+  "dependencies": {
+    "jose": "^5.9.6",
+    "postgres": "^3.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vercel/node": "^3.2.29",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

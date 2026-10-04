@@ -1,0 +1,472 @@
+CITYVET PROJECT SETUP AND HOSTING CHECKLIST
+==========================================
+
+Purpose
+-------
+This document lists the project requirements, where to find the setup files,
+which credentials are needed, and how to configure Supabase PostgreSQL and
+Vercel to host the current CityVet dashboard.
+
+Target architecture:
+
+  Browser -> Vercel static files and serverless API -> Supabase PostgreSQL
+
+This guide is for the CURRENT dashboard, served from index.html, and its
+connected API. The older app.js clinic workflow is not connected to the
+backend described here.
+
+Do not send secrets by chat, email, or source control. Enter them only into
+the local environment file or the hosting provider's protected environment
+variable settings.
+
+
+1. REQUIREMENTS
+===============
+
+Accounts/services you need:
+
+  [ ] GitHub account and access to the project repository (recommended for
+      Vercel deployment and continuous deployment).
+  [ ] Vercel account with permission to create/configure a project.
+  [ ] Supabase account with permission to create/configure a project and run
+      SQL in its SQL Editor.
+  [ ] A Supabase project and its chosen region.
+  [ ] Optional: a domain name and permission to update its DNS records.
+  [ ] Optional before public launch: Vercel WAF/rate limiting or a CAPTCHA
+      provider for the public owner pre-listing form.
+
+Local development requirements:
+
+  [ ] Windows PowerShell or another supported terminal.
+  [ ] Node.js 20 or newer (npm is included with Node.js).
+  [ ] Dependencies installed from package-lock.json using npm ci or npm install.
+  [ ] A PostgreSQL database for full integration tests. This can be local or
+      an appropriately configured Supabase test database. Do not run tests
+      that modify records against a production database.
+
+No Supabase JavaScript client package is used by this backend. The browser
+calls the same-origin /api/v1 endpoints; the server connects to PostgreSQL.
+
+
+2. PROJECT ROOT AND IMPORTANT FILE LOCATIONS
+============================================
+
+The Vercel project root must be the folder that contains all of the following:
+
+  index.html
+  login.html
+  package.json
+  package-lock.json
+  vercel.json
+  api\
+  server\
+  db\
+
+In this working copy, the project folder is:
+
+  CityVet\CityVet\
+
+If importing the containing parent folder into Vercel, set Root Directory to
+the nested CityVet\CityVet folder. If the Git repository root itself contains
+index.html and package.json, use "." as Root Directory instead. Confirm the
+selected root by checking that package.json and api\ are visible at that
+level.
+
+Setup and reference files:
+
+  README-BACKEND.md
+      Shorter backend and hosting notes.
+
+  .env.example
+      Safe local environment template containing placeholders only.
+
+  .gitignore
+      Excludes local environment files and dependencies from source control.
+
+  .vercelignore
+      Excludes .env files and development-only files from Vercel uploads.
+
+  vercel.json
+      Static asset response headers currently used by Vercel.
+
+  db\000_ekapon_schema.sql
+      Complete fresh-install database bootstrap.
+
+  db\001_create_api_role.sql
+      Creates the restricted login role used by the API. Set its password
+      before running this script.
+
+  db\002_fix_verify_password.sql
+      Compatibility correction for older authentication database installs.
+
+  db\003_dashboard_records.sql
+      Adds dashboard records and public pre-listing storage to an existing
+      earlier authentication/accounts database.
+
+  docs\API-01-auth-and-accounts.md
+      Existing authentication/account API contract.
+
+  docs\API-02-dashboard.md
+      Dashboard record, import/undo, activity, and pre-listing API contract.
+
+  BACKEND-DEVELOPMENT-REPORT.txt
+      Detailed implementation, progress, limitations, and validation report.
+
+  package.json
+      Runtime and developer dependencies, Node requirement, and scripts.
+
+
+3. CREDENTIALS AND CONFIGURATION VALUES
+=======================================
+
+Required server-side secrets/settings:
+
+  DATABASE_URL
+      Supabase PostgreSQL connection string for the ekapon_api role.
+      Use Supabase Connect -> Transaction pooler. The usual pooler port is
+      6543. It must include the project/role username and the exact password
+      configured for ekapon_api.
+
+      General shape only (not a real credential):
+      postgresql://ekapon_api.<project-ref>:<PASSWORD>@<POOLER-HOST>:6543/<DATABASE>
+
+      Supabase may display a slightly different connection URI. Use the
+      Transaction Pooler value supplied by the Supabase dashboard and verify
+      its username/password format there.
+
+  JWT_SECRET
+      A unique cryptographically random string, at least 32 characters.
+      Generate a different value for local development and each Vercel
+      environment (Preview and Production).
+
+      PowerShell generation command:
+      node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+
+Other supported environment values:
+
+  NODE_ENV
+      Use development locally. Vercel sets production for Production
+      deployments; verify the value in the deployed environment if needed.
+
+  SESSION_HOURS
+      Optional session lifetime, integer from 1 to 24; default is 8.
+
+  LOGIN_IP_MAX_FAILURES
+      Optional IP sign-in failure threshold, integer from 3 to 1000; default
+      is 20 failures in the configured 15-minute check period.
+
+  ALLOWED_ORIGINS
+      Optional comma-separated list of fully qualified trusted origins only
+      when another website must call the API. For a same-origin Vercel
+      deployment, leave this blank.
+
+Supabase keys:
+
+  The backend does NOT require the Supabase anon/public key or service_role
+  key. Do not add either one to browser JavaScript or expose service_role in
+  Vercel unnecessarily.
+
+  The database URL is a sensitive server credential. Use the restricted
+  ekapon_api database login, not the Supabase postgres owner or service_role.
+
+Password encoding:
+
+  If the database-role password contains characters such as @, :, /, %, #, or
+  ?, encode the password component for use inside the DATABASE_URL. Do not
+  encode or alter the password when entering it into the SQL role-creation
+  script. Check the final connection URL carefully in the Supabase connection
+  instructions. Never paste the URL into a public issue or commit it.
+
+
+4. CREATE AND PREPARE THE SUPABASE DATABASE
+===========================================
+
+Choose exactly one installation path below. Do not run the fresh-install SQL
+on top of an existing database.
+
+PATH A - NEW / EMPTY SUPABASE PROJECT
+-------------------------------------
+
+  1. Create a Supabase project and select a region.
+  2. Open that project's SQL Editor.
+  3. Run db\000_ekapon_schema.sql.
+  4. Open db\001_create_api_role.sql locally.
+  5. Replace CHANGE_ME_TO_A_LONG_RANDOM_PASSWORD with a unique, strong
+     database-role password. Keep a secure record of it.
+  6. Run the edited role script once in the Supabase SQL Editor.
+  7. Verify that ekapon_api is a login role and is a member of ekapon_admin.
+  8. Change the initial staff credentials as described in Section 6 before
+     enabling public use.
+
+PATH B - DATABASE ALREADY HAS THE EARLIER AUTH/ACCOUNTS SCHEMA
+--------------------------------------------------------------
+
+Use this path only if the existing database is known to contain the earlier
+ekapon authentication/accounts objects.
+
+  1. Take/verify a database backup before migration.
+  2. If the password verification fix has not already been applied, run
+     db\002_fix_verify_password.sql.
+  3. Run db\003_dashboard_records.sql.
+  4. If the API database login role does not already exist, create it using
+     db\001_create_api_role.sql as described in Path A. Do not blindly rerun
+     the role script: it creates the role only when absent and will not
+     automatically change an existing role password.
+  5. Change the initial staff credentials before public use.
+
+If the database has an unknown or substantially different schema, stop and
+inspect its current migrations/tables before applying either path. Do not
+guess or run SQL that may conflict with existing project data.
+
+The schema includes initial admin and encoder accounts used by the existing
+integration setup. Their initial password must be changed before public use.
+Change it using the secure database function, for example:
+
+  select ekapon.set_permanent_password(id, '<NEW-STRONG-PASSWORD>')
+  from ekapon.accounts
+  where username = 'admin';
+
+Repeat for the encoder account. Use the Supabase SQL Editor only in a trusted
+session; do not save the literal password in this text file, source code, or
+chat. Verify the account status is Active after the password change.
+
+
+5. LOCAL DEVELOPMENT
+====================
+
+From the project root (the folder containing package.json), run PowerShell:
+
+  Copy-Item .env.example .env.local
+
+Edit .env.local and set:
+
+  DATABASE_URL=<Supabase transaction-pooler URL or local PostgreSQL URL>
+  JWT_SECRET=<unique random value of 32 or more characters>
+  NODE_ENV=development
+
+Do not place angle brackets around the real values. Do not commit .env.local.
+
+Install dependencies from the lock file:
+
+  npm ci
+
+Type-check:
+
+  npm run typecheck
+
+Run the local static-site/API development server:
+
+  npm run dev:local
+
+Open:
+
+  http://localhost:3000/login.html
+
+Vercel development command (optional):
+
+  npm run dev
+
+That command uses the Vercel CLI, which is not listed as a project dependency.
+Install/use the Vercel CLI only if needed for local Vercel emulation.
+
+Tests:
+
+  npx vitest run tests/dashboard-contract.test.ts
+      Runs the database-independent dashboard contract tests.
+
+  npm test
+      Runs the full suite, including auth/accounts integration tests. These
+      require a prepared PostgreSQL database with the schema, ekapon_api
+      access, and sample/test staff accounts. TEST_DATABASE_URL can override
+      the default test database URL.
+
+Never point the integration test suite at a production database. The tests
+insert, update, and delete data.
+
+
+6. VERCEL PROJECT SETUP
+=======================
+
+Repository connection:
+
+  1. Push the project to a private GitHub repository (recommended).
+  2. In Vercel, import that repository as a new project.
+  3. Set Root Directory to the folder containing package.json, index.html,
+     vercel.json, and api\ (see Section 2).
+  4. Select Framework Preset: Other.
+  5. The project is static HTML/JavaScript plus Vercel file-system API
+     functions. No frontend build command is required.
+  6. Keep the Node.js runtime at Node 20 or newer.
+  7. Select a Vercel Function region close to the Supabase project's region
+     to reduce database latency.
+
+Environment variables:
+
+  In Vercel Project -> Settings -> Environment Variables, add these values
+  server-side:
+
+    DATABASE_URL
+      The Supabase transaction-pooler URL for ekapon_api.
+
+    JWT_SECRET
+      A newly generated random secret. Never reuse a public/demo value.
+
+    NODE_ENV
+      Normally provided by Vercel; verify Production is production.
+
+    SESSION_HOURS
+      Optional. Omit to use the default of 8 hours.
+
+    LOGIN_IP_MAX_FAILURES
+      Optional. Omit to use the default of 20.
+
+    ALLOWED_ORIGINS
+      Omit/leave empty for the same-origin website/API configuration.
+
+  Apply secrets to the correct environments:
+
+    Production  -> production database credentials and production JWT secret
+    Preview     -> preview/test database credentials and a different secret
+    Development -> optional; only if using Vercel CLI locally
+
+  Do not use a production database for untrusted Preview deployments unless
+  you specifically intend to share its data and have access controls in place.
+
+Deploy:
+
+  1. Save Vercel settings.
+  2. Deploy from the connected Git branch or use Vercel's Deploy action.
+  3. Redeploy after changing environment variables; existing deployments do
+     not necessarily receive newly saved values automatically.
+  4. Configure a custom domain in Vercel if required and follow its DNS
+     verification instructions.
+  5. Use HTTPS for the live website. Vercel custom domains normally provision
+     TLS after DNS verification.
+
+
+7. POST-DEPLOYMENT SMOKE TEST
+=============================
+
+Test these checks against the deployed HTTPS URL:
+
+  [ ] GET /api/v1/health returns HTTP 200 and {"ok":true}.
+      A database connection error means DATABASE_URL, role grants, migration,
+      or network settings need attention.
+
+  [ ] Open /login.html and sign in using the changed staff credentials.
+
+  [ ] Confirm the session cookie is HttpOnly, SameSite=Strict and Secure in
+      Production. Do not copy/share its value.
+
+  [ ] Confirm the dashboard operational lists load from the API rather than
+      showing only generated demo sample data.
+
+  [ ] As an authorized staff account, create a test program and physical stub.
+
+  [ ] Test CSV import using a small reviewed test CSV; confirm it persists
+      after reload and that undo succeeds only when imported data has not
+      subsequently changed.
+
+  [ ] Test archive/restore on a disposable test row.
+
+  [ ] Submit a public test pre-listing and confirm a reference is returned.
+      Verify the staff view can review it. Remove test personal information
+      according to the organization's retention policy.
+
+  [ ] Verify browser developer tools show no database URL, role password,
+      JWT secret, or privileged Supabase key in downloaded frontend assets.
+
+  [ ] Verify expected errors are shown when the API or database is
+      unavailable; do not treat demo mode as live data.
+
+
+8. DATA MIGRATION AND INITIAL RECORDS
+=====================================
+
+  - Browser-local demo data is not copied to Supabase automatically.
+  - Export and review any rows that are actually required, then use the
+    dashboard's CSV templates/import flow after the API is live.
+  - Do not import generated demonstration names or fabricated rows as actual
+    clinic records.
+  - Make a backup and validate the mapping before importing sensitive data.
+  - Follow the office's authorization, privacy, retention, and deletion
+    procedures for owner names, mobile numbers, and animal records.
+  - The dashboard currently uses JSONB-backed records with an allowlist. The
+    existing separate Prisma schema is not the active API database model.
+
+
+9. SECURITY CHECKLIST BEFORE PUBLIC LAUNCH
+==========================================
+
+  [ ] Replace both initial staff passwords with strong, unique credentials.
+  [ ] Change the placeholder API database password and ensure the DATABASE_URL
+      uses the same password.
+  [ ] Use a unique JWT_SECRET per environment and store it only in secret
+      environment variables.
+  [ ] Keep Supabase database credentials out of browser code and Git.
+  [ ] Do not use the Supabase postgres owner or service_role as DATABASE_URL.
+  [ ] Keep Supabase backups/PITR and retention settings appropriate for the
+      sensitivity and importance of the records.
+  [ ] Limit Vercel team/project access to authorized maintainers.
+  [ ] Protect Preview deployments and avoid connecting untrusted previews to
+      production data.
+  [ ] Enable WAF/rate limiting or CAPTCHA for public pre-listing submissions.
+  [ ] Confirm privacy notice, data retention, record correction/deletion and
+      incident response with the organization.
+  [ ] Confirm a tested backup/restore procedure before operational use.
+  [ ] Review npm audit findings and plan dependency upgrades separately.
+
+Known security/feature boundaries:
+
+  - Backend authorization for dashboard records is currently role-based
+    (Admin/Encoder). Barangay-scoped row-level security is not implemented.
+  - Operational data is not yet a fully normalized veterinary schema.
+  - Login timing hardening for unknown accounts and SMS/email delivery of
+    temporary passwords are not implemented.
+  - Public pre-listing abuse controls and retention policy must be finalized.
+  - Notifications, report basket, theme/display settings and browser backup
+    files remain local utilities.
+
+
+10. WHO NEEDS TO PROVIDE WHAT?
+==============================
+
+The project owner/operator needs to create/configure and privately enter:
+
+  1. Supabase project and region.
+  2. Database SQL migration approval/application.
+  3. A strong ekapon_api role password.
+  4. Supabase Transaction Pooler DATABASE_URL for ekapon_api.
+  5. A new JWT_SECRET for each environment.
+  6. Vercel project/repository permissions and environment configuration.
+  7. Initial admin/encoder passwords and authorized staff list.
+  8. Optional domain/DNS control.
+  9. Public pre-listing protection and privacy/retention policy decisions.
+
+These should be entered in Supabase/Vercel or .env.local as appropriate.
+They should not be sent to the developer through chat.
+
+Not required for the current server-side architecture:
+
+  - Supabase anon/public API key.
+  - Supabase service_role key.
+  - Supabase Auth client configuration.
+
+
+11. SUPPORTING DOCUMENTS
+========================
+
+  README-BACKEND.md
+      Concise project-specific backend setup.
+
+  docs\API-01-auth-and-accounts.md
+      Existing login and account endpoint documentation.
+
+  docs\API-02-dashboard.md
+      Current dashboard API endpoint documentation.
+
+  BACKEND-DEVELOPMENT-REPORT.txt
+      Full changes, implementation progress, validation, and limitations.
+
+
+END OF SETUP GUIDE
