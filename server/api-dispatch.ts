@@ -55,8 +55,13 @@ const routes = routeEntries.map((entry) => {
 
 export async function dispatchApi(req: RoutedRequest, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
+  const rewrittenPath = url.searchParams.get('route') ?? req.query?.route;
+  const requestPath = Array.isArray(rewrittenPath) ? rewrittenPath[0] : rewrittenPath;
+  const pathname = typeof requestPath === 'string' && requestPath.startsWith('/api/v1/')
+    ? requestPath
+    : url.pathname;
   for (const route of routes) {
-    const match = route.expression.exec(url.pathname);
+    const match = route.expression.exec(pathname);
     if (!match) continue;
     const query = { ...(req.query ?? {}) };
     route.names.forEach((name, index) => {

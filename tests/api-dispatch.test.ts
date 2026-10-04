@@ -52,4 +52,11 @@ describe('API dispatcher', () => {
     const response = await fetch(`${baseUrl}/api/v1/not-a-route`, { method: 'OPTIONS' });
     expect(response.status).toBe(404);
   });
+
+  it('dispatches explicit Vercel rewrites through the single API function', async () => {
+    const response = await fetch(`${baseUrl}/api?route=${encodeURIComponent('/api/v1/health')}&page=2`, {
+      method: 'OPTIONS',
+    });
+    expect(response.status).toBe(204);
+  });
 });
