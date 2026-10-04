@@ -295,7 +295,9 @@ Repository connection:
      vercel.json, and api\ (see Section 2).
   4. Select Framework Preset: Other.
   5. The project is static HTML/JavaScript plus Vercel file-system API
-     functions. No frontend build command is required.
+     functions. All API routes are dispatched through one Vercel function to
+     stay within the Hobby plan's serverless-function limit. No frontend build
+     command is required.
   6. Keep the Node.js runtime at Node 20 or newer.
   7. Select a Vercel Function region close to the Supabase project's region
      to reduce database latency.
