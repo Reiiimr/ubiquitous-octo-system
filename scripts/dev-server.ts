@@ -3,6 +3,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 try { process.loadEnvFile('.env.local'); } catch { /* use real environment variables */ }
 
@@ -33,7 +34,7 @@ http.createServer(async (req, res) => {
       const m = r.re.exec(url.pathname);
       if (!m) continue;
       (req as any).query = Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1])]));
-      return (await import(r.file)).default(req, res);
+      return (await import(pathToFileURL(r.file).href)).default(req, res);
     }
     res.statusCode = 404; res.setHeader('Content-Type', 'application/json'); return void res.end('{"error":{"code":"NOT_FOUND","message":"Not found."}}');
   }

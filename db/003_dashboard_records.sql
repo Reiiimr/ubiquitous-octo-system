@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS ekapon.dashboard_records (
 CREATE INDEX IF NOT EXISTS dashboard_records_listing_idx
     ON ekapon.dashboard_records (dataset, archived, updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS dashboard_program_date_unique
-    ON ekapon.dashboard_records (lower(record_data->>'barangay'), record_data->>'date')
+    ON ekapon.dashboard_records (lower((record_data->>'barangay')), (record_data->>'date'))
     WHERE dataset = 'programs' AND NOT archived
       AND COALESCE(record_data->>'status', '') <> 'Cancelled';
 
