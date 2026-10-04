@@ -1,0 +1,334 @@
+// City Veterinary Office of San Jose del Monte — MVP Database Schema
+// Scope: Pet & Owner Records, Veterinary Queue & Appointment,
+//        Barangay Spay/Neuter Slot Management, Impounded Animal / Dog Finder
+// Deferred to a later pass: Aftercare/RAG content library, notification logs,
+// audit log, full reporting tables.
+//
+// Design grounded in:
+//  - OpenVPM, Ababu, gnuvet (open-source vet PIMS — Client/Patient/Appointment
+//    pattern, tenant-scoped rows via RLS)
+//  - Animal Shelter Manager / ASM3 (open-source shelter system — intake by
+//    location, movement/status tracking for impounded animals)
+//  - "PetPal: Barangay Pet Registration and Monitoring System" (PH capstone —
+//    barangay-level centralized pet data)
+//  - "PawHaven" (PH capstone — community animal reporting alongside core vet
+//    records)
+// combined with the confirmed findings in the project document (Section 5.1):
+// barangay-initiated letter-based program requests, fixed 200-slot allocation,
+// terminal NOT_QUALIFIED screening outcome, capture-by-location logging with
+// barangay notification, condition-based penalty schedule.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // Supabase connection string
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  CITY_VET_ADMIN // City Veterinary Office staff — full city-wide access
+  BARANGAY_STAFF // Barangay official — scoped to their own barangayId
+  PARAVET        // Barangay-assigned paravet — scoped to their own barangayId
+  PET_OWNER      // Resident — mobile app, scoped to their own records
+}
+
+enum Species {
+  DOG
+  CAT
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum SterilizationStatus {
+  NOT_STERILIZED
+  SCHEDULED
+  STERILIZED
+}
+
+enum AppointmentType {
+  WALK_IN
+  SCHEDULED
+  FOLLOW_UP
+  EMERGENCY
+}
+
+enum AppointmentStatus {
+  PENDING
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ProgramStatus {
+  REQUESTED  // barangay letter submitted
+  CONFIRMED  // City Vet confirmed date, no conflict
+  CONFLICT   // City Vet flagged a scheduling conflict
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// NOT_QUALIFIED is a terminal outcome for this program cycle — confirmed by
+// the office: a disqualified pet cannot reapply within the same cycle because
+// preparing a pet for the procedure takes considerable time. A future
+// application must go through a new SlotRegistration on a later Program.
+enum ScreeningStatus {
+  PENDING
+  FOR_SCREENING
+  QUALIFIED
+  NOT_QUALIFIED
+  REQUIRES_FURTHER_ASSESSMENT
+}
+
+enum ImpoundStatus {
+  IMPOUNDED
+  CLAIMED
+  RELEASED
+  UNCLAIMED
+}
+
+enum SightingStatus {
+  NEW
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
+
+enum ClaimVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+// ---------- Core reference tables ----------
+
+model Barangay {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String   @unique // short code, e.g. "SNI" for San Isidro
+  createdAt DateTime @default(now())
+
+  staff              User[]
+  programs           SpayNeuterProgram[]
+  impoundedAnimals   ImpoundedAnimal[]
+  sightingReports    SightingReport[]
+}
+
+// Unified identity table. Pet owners, barangay staff/paravets, and City Vet
+// admins are all Users distinguished by role — this keeps auth, RLS policies,
+// and notifications keyed off one table instead of three. Links 1:1 to
+// Supabase's auth.users via id.
+model User {
+  id            String   @id @default(uuid())
+  role          Role
+  fullName      String
+  contactNumber String?
+  email         String?  @unique
+  barangayId    String?  // required for BARANGAY_STAFF / PARAVET, null otherwise
+  barangay      Barangay? @relation(fields: [barangayId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ownedPets              Pet[]                @relation("PetOwner")
+  assignedAppointments   Appointment[]        @relation("AssignedVet")
+  requestedPrograms      SpayNeuterProgram[]  @relation("ProgramRequestedBy")
+  confirmedPrograms      SpayNeuterProgram[]  @relation("ProgramConfirmedBy")
+  screenedRegistrations  SlotRegistration[]   @relation("ScreenedBy")
+  loggedImpoundedAnimals ImpoundedAnimal[]    @relation("LoggedBy")
+  claimRequests          ClaimRequest[]       @relation("Claimant")
+  verifiedClaims         ClaimRequest[]       @relation("VerifiedBy")
+  reviewedSightings       SightingReport[]     @relation("ReviewedBy")
+
+  @@index([barangayId])
+}
+
+// ---------- Module 1: Pet & Owner Records ----------
+
+model Pet {
+  id                    String              @id @default(uuid())
+  ownerId               String
+  owner                 User                @relation("PetOwner", fields: [ownerId], references: [id])
+  name                  String
+  species               Species
+  sex                   Sex
+  breed                 String?
+  color                 String?
+  dateOfBirth           DateTime?
+  approxAgeMonths       Int?                // used when exact DOB is unknown
+  weightKg              Decimal?            @db.Decimal(5, 2)
+  sterilizationStatus   SterilizationStatus @default(NOT_STERILIZED)
+  lastVaccinationDate   DateTime?
+  photoUrl              String?
+  qrCode                String              @unique // printed on the pet's QR tag
+  nfcTagId              String?             @unique // set only if an NFC tag is issued
+  legacyRunningNumber   String?             @unique // reconciliation with the office's ~288,000 pre-existing records
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  appointments      Appointment[]
+  slotRegistrations SlotRegistration[]
+  matchedImpoundedAnimals ImpoundedAnimal[] @relation("MatchedPet")
+
+  @@index([ownerId])
+  @@index([legacyRunningNumber])
+}
+
+// ---------- Module 2: Veterinary Queue & Appointment ----------
+
+model Appointment {
+  id             String            @id @default(uuid())
+  petId          String
+  pet            Pet               @relation(fields: [petId], references: [id])
+  type           AppointmentType
+  status         AppointmentStatus @default(PENDING)
+  scheduledAt    DateTime?         // null for an unscheduled walk-in until queued
+  queueNumber    Int?
+  // Priority reflects the office's confirmed practice: scheduled follow-ups
+  // and emergencies are served ahead of unscheduled walk-ins.
+  priority       Int               @default(0) // higher = served sooner
+  assignedVetId  String?
+  assignedVet    User?             @relation("AssignedVet", fields: [assignedVetId], references: [id])
+  notes          String?
+  xrayFlag       Boolean           @default(false)
+  minorSurgeryFlag Boolean         @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([petId])
+}
+
+// ---------- Module 3: Barangay Spay/Neuter Slot Management ----------
+
+model SpayNeuterProgram {
+  id               String        @id @default(uuid())
+  barangayId       String
+  barangay         Barangay      @relation(fields: [barangayId], references: [id])
+  requestedByUserId String
+  requestedBy      User          @relation("ProgramRequestedBy", fields: [requestedByUserId], references: [id])
+  requestLetterRef String?       // reference/scan of the formal request letter
+  programDate      DateTime
+  totalSlots       Int           @default(200)
+  dogSlots         Int?
+  catSlots         Int?
+  status           ProgramStatus @default(REQUESTED)
+  confirmedByUserId String?
+  confirmedBy      User?         @relation("ProgramConfirmedBy", fields: [confirmedByUserId], references: [id])
+  conflictNotes    String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  registrations SlotRegistration[]
+
+  @@index([barangayId, status])
+}
+
+model SlotRegistration {
+  id                     String          @id @default(uuid())
+  programId              String
+  program                SpayNeuterProgram @relation(fields: [programId], references: [id])
+  petId                  String
+  pet                    Pet             @relation(fields: [petId], references: [id])
+  registeredAt           DateTime        @default(now())
+  screeningStatus        ScreeningStatus @default(PENDING)
+  screenedByUserId       String?
+  screenedBy             User?           @relation("ScreenedBy", fields: [screenedByUserId], references: [id])
+  screeningNotes         String?
+  disqualificationReason String?         // e.g. "fasting not observed", "owner unprepared"
+  procedureCompletedAt   DateTime?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  // A pet can only hold one registration per program — re-registering after
+  // NOT_QUALIFIED requires a different (future) program, enforced here.
+  @@unique([programId, petId])
+  @@index([programId, screeningStatus])
+}
+
+// ---------- Module 4: Impounded Animal / Dog Finder ----------
+
+model ImpoundedAnimal {
+  id                       String        @id @default(uuid())
+  capturedAtBarangayId     String
+  capturedAtBarangay       Barangay      @relation(fields: [capturedAtBarangayId], references: [id])
+  captureLocation          String        // free-text location detail within the barangay
+  captureDate              DateTime
+  species                  Species
+  sex                      Sex?
+  colorDescription         String?
+  breedDescription         String?
+  distinguishingMarks      String?
+  photoUrl                 String?
+  vaccinationStatusAtCapture String?     // as observed at intake, not from a Pet record
+  status                   ImpoundStatus @default(IMPOUNDED)
+  matchedPetId             String?       // set if later identified as a registered Pet
+  matchedPet               Pet?          @relation("MatchedPet", fields: [matchedPetId], references: [id])
+  loggedByUserId           String
+  loggedBy                 User          @relation("LoggedBy", fields: [loggedByUserId], references: [id])
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  claimRequests ClaimRequest[]
+
+  @@index([capturedAtBarangayId, status])
+}
+
+model ClaimRequest {
+  id                String    @id @default(uuid())
+  impoundedAnimalId String
+  impoundedAnimal   ImpoundedAnimal @relation(fields: [impoundedAnimalId], references: [id])
+  claimantUserId    String?
+  claimant          User?     @relation("Claimant", fields: [claimantUserId], references: [id])
+  claimDate         DateTime  @default(now())
+  verificationStatus ClaimVerificationStatus @default(PENDING)
+  verifiedByUserId  String?
+  verifiedBy        User?     @relation("VerifiedBy", fields: [verifiedByUserId], references: [id])
+  penaltyRuleId     String?
+  penaltyRule       PenaltyRule? @relation(fields: [penaltyRuleId], references: [id])
+  penaltyAmount     Decimal?  @db.Decimal(8, 2)
+  releasedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([impoundedAnimalId])
+}
+
+// Configurable fee/penalty rules, not hard-coded — confirmed by the office:
+// e.g. an additional ~PHP 2,000 charge for an unvaccinated animal, reflecting
+// the cost of isolating it from vaccinated animals.
+model PenaltyRule {
+  id                  String   @id @default(uuid())
+  violationType        String   // e.g. "unvaccinated", "no collar/ID"
+  baseAmount          Decimal  @db.Decimal(8, 2)
+  conditionDescription String?
+  effectiveDate        DateTime
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  claimRequests ClaimRequest[]
+}
+
+model SightingReport {
+  id                String         @id @default(uuid())
+  reporterName      String?
+  reporterContact   String?
+  photoUrl          String?
+  locationDescription String
+  barangayId        String
+  barangay          Barangay       @relation(fields: [barangayId], references: [id])
+  description       String?
+  status            SightingStatus @default(NEW)
+  reportedAt        DateTime       @default(now())
+  reviewedByUserId  String?
+  reviewedBy        User?          @relation("ReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([barangayId, status])
+}

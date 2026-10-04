@@ -1,0 +1,35 @@
+# Project Instructions
+
+## Project Overview
+[2–4 sentences describing what this project is and who it's for.]
+
+## Tech Stack
+- [Core technology 1]
+- [Core technology 2]
+- [Include versions where they matter]
+
+## Project Structure
+- `/src/components` — React components
+- `/src/lib` — Shared utilities and helpers
+- `/src/api` — API route handlers
+- `/src/types` — TypeScript type definitions
+
+## Coding Conventions
+- [Convention 1]
+- [Convention 2]
+
+## Rules (Do Not Break)
+- [Non-negotiable rule 1]
+- [Non-negotiable rule 2]
+
+## Common Commands
+- Dev: `[your dev command]`
+- Test: `[your test command]`
+- Build: `[your build command]`
+
+## Current Focus
+[What you're actively working on right now.
+Update this when your focus changes.]
+
+## Known Issues / Gotchas
+[Things Claude should know to avoid common mistakes.]
