@@ -14,12 +14,12 @@ const portalOnly = (type: string) => { if (type !== 'Paravet' && type !== 'User'
 
 export default route({
   GET: async (c) => {
-    await requireAuth(c.req, { roles: ['Admin'] });
+    await requireAuth(c.req, { roles: ['SuperAdmin'] });
     return ok({ account: toAccount(await load(c.query.key)) });
   },
 
   PATCH: async (c) => {
-    const s = await requireAuth(c.req, { roles: ['Admin'] });
+    const s = await requireAuth(c.req, { roles: ['SuperAdmin'] });
     const a = await load(c.query.key);
     portalOnly(a.account_type);
     const b = parse(updateAccount, c.body);
@@ -39,7 +39,7 @@ export default route({
   },
 
   DELETE: async (c) => {
-    const s = await requireAuth(c.req, { roles: ['Admin'] });
+    const s = await requireAuth(c.req, { roles: ['SuperAdmin'] });
     const a = await load(c.query.key);
     portalOnly(a.account_type);
     if (a.id === s.id) throw forbidden('You cannot delete your own account.');

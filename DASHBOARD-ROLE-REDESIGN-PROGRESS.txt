@@ -1,0 +1,292 @@
+CITYVET DASHBOARD ROLE REDESIGN
+PROGRESS AND LOCAL PREVIEW GUIDE
+Date: 2026-10-05
+Project: CityVet dashboard
+Implementation folder: C:\Users\Rei\Downloads\Environment Testing\ubiquitous-octo-system-publish
+
+
+1. PURPOSE AND CURRENT STATE
+============================
+
+This report documents the dashboard role redesign work completed in the
+publishing clone. It is a new document; the existing documentation files,
+including BACKEND-DEVELOPMENT-REPORT.txt, README-BACKEND.md, and SETUP.txt,
+were not replaced by this report.
+
+The redesign is implemented in the working copy but is not committed, pushed,
+or deployed. The user's existing Vercel deployment therefore does not yet
+include these changes. A local preview is possible. Full role and
+database-backed testing requires the compatible database schema and an API
+session.
+
+No API keys or database credentials were added to the source files. Do not
+place secrets in this report or send them through chat.
+
+
+2. ROLE DESIGN
+==============
+
+The approved role mapping for an existing installation is:
+
+  Existing Admin  -> SuperAdmin
+  Existing Encoder -> Admin
+  Paravet          -> Paravet
+
+SuperAdmin:
+  - Full dashboard and data access.
+  - Staff account administration.
+  - Access to system maintenance and role feature controls.
+  - Can toggle maintenance mode and feature availability for Admin and
+    Paravet roles.
+  - Can download a server-generated JSON export of database-backed
+    application data.
+
+Admin:
+  - City Vet operational encoding, registry, field operations, reporting,
+    data-quality review, and supported data management.
+  - Cannot administer staff accounts or system-wide controls.
+
+Paravet:
+  - Dashboard, census encoding, and masterlist access.
+  - Record visibility and permitted writes are restricted to the account's
+    assigned barangay by API checks.
+  - Can read owners/pets masterlist datasets and encode respondents,
+    households, and census animals.
+  - Cannot write to other barangays or replace another barangay's record.
+
+The Paravet barangay boundary is checked by the API using the signed-in
+account and the barangay value on the records. PostgreSQL row-level security
+(RLS) has not been configured. The current JSONB storage and API checks should
+not be described as database-enforced multi-tenancy.
+
+
+3. DASHBOARD AND ANALYTICS CHANGES
+==================================
+
+Navigation uses expandable, keyboard-operable disclosure groups:
+
+  Overview
+  Records
+  Field operations
+  Programs & services
+  Reports & insights
+  Administration
+  Data management
+  Public services
+
+Each group's links are filtered according to the signed-in role and the
+feature access settings controlled by SuperAdmin. The group containing the
+current route opens automatically, its link is marked as current, and routes
+that are not available to the role or have been disabled are redirected to
+the dashboard, including when requested by a direct URL. Account
+administration is restricted to SuperAdmin in the server API as well as the
+dashboard navigation.
+
+The main dashboard's participation funnel and program panels are moved into
+the Reports/analytics section to reduce clutter on the overview screen.
+
+Analytics use records loaded from the live database API; demonstration seed
+rows are excluded from the trend calculation. Analytics include saved-record
+activity by month, an interpretation comparing recent periods, upcoming
+program counts, and a simple planning estimate. The estimate is withheld
+unless at least 10 dated live records across at least 3 distinct months are
+available. Any estimate is a planning signal, not a guarantee or audited KPI.
+
+At sign-in, the dashboard offers the previously visited allowed section when
+available, with the dashboard as an alternative. A browser-native
+beforeunload prompt warns when leaving the signed-in app; browsers do not
+allow a dependable custom modal when a tab or window is closed.
+
+
+4. SUPERADMIN CONTROLS AND DATABASE EXPORT
+==========================================
+
+The API includes a SuperAdmin system controls route for reading and updating
+maintenance mode and Admin/Paravet feature access.
+
+The Settings page includes:
+  - Maintenance mode control.
+  - Feature availability checkboxes for Admin and Paravet.
+  - A database backup download action.
+  - An updated role-and-permission summary.
+
+The database backup route is SuperAdmin-only. It exports JSON containing
+dashboard records, account rows without credential hashes, barangay
+reference data, pre-listings, audit history with credential-related fields
+removed, and role/system controls. It is an export only: no database restore
+endpoint was added. The existing browser-local backup/restore utility is a
+separate feature and does not back up or restore Supabase.
+
+
+5. DATABASE SETUP REQUIREMENTS
+==============================
+
+Fresh database:
+  1. Run db\000_ekapon_schema.sql.
+  2. Run db\001_create_api_role.sql after setting a strong database-role
+     password.
+  3. Replace initial staff passwords before operational use.
+
+Existing database:
+  1. Confirm the target Supabase project and make a database backup first.
+  2. Apply any applicable earlier database migrations, such as
+     db\002_fix_verify_password.sql and db\003_dashboard_records.sql.
+  3. Run db\004_dashboard_roles.sql exactly once.
+  4. Verify migration success before deploying the matching app code.
+
+IMPORTANT:
+  - db\004_dashboard_roles.sql renames old account enum values and creates
+    maintenance/feature tables. It has not been run by this development work.
+  - Do not run db\004_dashboard_roles.sql against a fresh database created
+    from db\000_ekapon_schema.sql; the fresh schema already contains the new
+    role values and controls tables.
+  - Do not run db\000_ekapon_schema.sql over an existing database.
+  - Do not use a production database for experimentation. Prefer a separate
+    disposable or staging Supabase project for end-to-end tests.
+  - The API needs its usual server-side DATABASE_URL and JWT_SECRET to work
+    in live mode. Do not commit .env.local.
+
+
+6. HOW TO PREVIEW LOCALLY
+=========================
+
+The redesign working copy is:
+
+  C:\Users\Rei\Downloads\Environment Testing\ubiquitous-octo-system-publish
+
+In PowerShell:
+
+  Set-Location 'C:\Users\Rei\Downloads\Environment Testing\ubiquitous-octo-system-publish'
+  npm run dev:local
+
+Open:
+
+  http://localhost:3000/login.html
+
+The local web server can show the UI, but full role-specific behavior requires
+a successful API connection and a signed-in database account. Without API
+configuration, the app may use browser demonstration mode; that mode does not
+fully represent the live role permissions, server controls, or database
+analytics.
+
+For live local testing, configure a local .env.local with DATABASE_URL and
+JWT_SECRET pointing to a safe test database. Keep this file private and out
+of Git. For an existing test schema, apply the appropriate migration path
+above first. Avoid using the production Supabase URL while evaluating role
+migrations or data-writing behavior.
+
+Another option is a Vercel Preview deployment connected to a separate staging
+database. The changes would need to be committed and pushed to the Git branch
+connected to Vercel first; they are not pushed at the time of this report.
+
+
+7. VALIDATION COMPLETED
+=======================
+
+In the publishing clone:
+
+  - npm run typecheck passed.
+  - Focused database-independent tests passed:
+      tests/api-dispatch.test.ts
+      tests/http-write-logging.test.ts
+      tests/dashboard-contract.test.ts
+    Result: 3 test files passed, 8 tests passed.
+  - JavaScript syntax checks passed for role-dashboard.js, login-api.js,
+    api-client.js, shell.js, and views.js.
+  - git diff --check passed.
+
+The database-dependent auth/accounts integration suite could not complete
+because it requires PostgreSQL at localhost:5432; that connection was refused.
+No disposable PostgreSQL test database was configured. The migration was not
+applied to Supabase, and live browser role checks and Vercel deployment have
+not been performed.
+
+
+8. IMPORTANT FILES
+==================
+
+Implementation:
+  role-dashboard.js
+  api-client.js
+  login-api.js
+  accounts.js
+  views.js
+  shell.js
+  sw.js
+  server\auth.ts
+  server\api-dispatch.ts
+  api-handlers\v1\admin\controls.ts
+  api-handlers\v1\admin\backup.ts
+  api-handlers\v1\records\
+  api-handlers\v1\accounts\
+  api-handlers\v1\prelistings\index.ts
+
+Database:
+  db\000_ekapon_schema.sql
+  db\004_dashboard_roles.sql
+
+Related existing documentation (not replaced by this report):
+  BACKEND-DEVELOPMENT-REPORT.txt
+  README-BACKEND.md
+  SETUP.txt
+  docs\API-01-auth-and-accounts.md
+  docs\API-02-dashboard.md
+
+
+9. NEXT STEPS
+=============
+
+  1. Review the UI locally using npm run dev:local.
+  2. For complete role testing, prepare a safe staging/test PostgreSQL
+     database and the matching environment variables.
+  3. Review and apply the correct SQL migration only to the intended test
+     database; verify it before running the app.
+  4. Test SuperAdmin, Admin, and Paravet accounts, especially attempted
+     cross-barangay access and changes to disabled features.
+  5. Test the export file handling and verify it does not contain credential
+     hashes or other secrets.
+  6. Complete database-backed tests and manual browser checks.
+  7. Only after review, decide whether to commit, push, and create a Preview
+     deployment. The redesign has not been pushed or deployed.
+
+
+10. FOLLOW-UP DASHBOARD OVERVIEW IMPROVEMENTS
+=============================================
+
+Date: 2026-10-05
+
+Added a focused dashboard overview layer in role-dashboard.js:
+
+  - Needs your attention: links and counts for program requests whose
+    existing status is exactly "Pending approval", and Paravet census
+    summaries whose existing flag is exactly "Pending". No missing policy
+    or inferred record states are invented.
+  - Quick access: shortcuts to existing owner search, masterlist, census,
+    registration/stubs, programs, services, reports, and import/export
+    screens. The role and currently disabled-feature filters are applied to
+    the shortcuts.
+  - System status: distinguishes unavailable connection, active database
+    loading, successful writes, and failed writes. Preview mode explicitly
+    warns that its sample counts are not live.
+  - Retry connection: the status area can retry the database health check.
+
+api-client.js now emits connection and write-status events and exposes a
+status snapshot for the dashboard. The service worker cache version was
+incremented so this page's updated JavaScript is not hidden by a stale
+browser cache. Existing dashboard panel relocation was also made more
+defensive when inserting the analytics section.
+
+Validation for this follow-up:
+  - npm run typecheck passed.
+  - Focused API/dashboard test files passed (8 tests).
+  - node --check passed for role-dashboard.js and api-client.js.
+  - git diff --check passed.
+  - Local browser preview verified the status message, quick access links,
+    sample attention counts, and previous-report panels.
+
+As before, these changes are local only and have not been committed, pushed,
+or deployed. Without a live database session, the displayed records are
+explicitly identified as preview/sample data.
+
+
+END OF REPORT

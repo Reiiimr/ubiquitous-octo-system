@@ -12,6 +12,7 @@
       try {
         const r = await CVApi.login(form.username.value.trim(), form.password.value);
         localStorage.setItem('cityvet.prototype.demoAccount', JSON.stringify({ username: r.account.username || r.account.accountKey, displayName: (r.account.name.split(', ')[1] || r.account.name) }));
+        Object.keys(sessionStorage).filter(key => key.startsWith('cityvet.recent-prompt.')).forEach(key => sessionStorage.removeItem(key));
         sessionStorage.setItem('cityvet.prototype.demoSession', '1');
         const next = new URLSearchParams(location.search).get('next');
         location.href = /^[a-z0-9-]+\.html$/i.test(next || '') ? next : 'index.html';

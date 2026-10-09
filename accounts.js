@@ -55,7 +55,7 @@ window.CVAccounts = (function () {
   // ---- Live mode (real server). Falls back to the demo functions above when the API is not reachable. ----
   const isLive = async () => { if (!window.CVApi) return false; await CVApi.ready; return CVApi.live; };
   const apiErr = e => CVDialog.alert('Could not complete the request', e.message || 'Request failed', 'error');
-  const staff = row => row.type === 'Admin' || row.type === 'Encoder';
+  const staff = row => row.type === 'SuperAdmin' || row.type === 'Admin';
   async function create(pre) {
     if (!(await isLive())) return createDemo(pre);
     pre = pre || {};

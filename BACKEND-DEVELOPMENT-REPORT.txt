@@ -397,8 +397,8 @@ Never commit .env.local.
   - The current Prisma schema is a separate, unfinished data model and is not
     used by the API. It must be reconciled before adopting Prisma for these
     operational records.
-  - Row-level security/tenancy by barangay is not implemented. Current
-    dashboard record authorization is role-based (Admin/Encoder).
+  - PostgreSQL row-level security is not implemented. Current API checks enforce
+    role access and Paravet record scoping by assigned barangay.
   - CSV import history and the latest undo pointer remain browser-local UI
     metadata. Clearing browser storage can remove the UI's reference to an
     import batch, although the database maintains the batch data.
@@ -408,8 +408,10 @@ Never commit .env.local.
     not have full standalone record-entry forms. Their records can be loaded
     through CSV import or the API. Program and physical stub creation are
     supported by existing UI forms.
-  - Notifications, report basket selections, display/theme settings, backups,
-    and some quality/import history UI state remain browser-local utilities.
+  - Notifications, report basket selections, display/theme settings, the
+    existing browser-local backup/restore utility, and some quality/import
+    history UI state remain browser-local utilities. The new database export
+    is separate and is not a restore mechanism.
   - Public pre-listings store personal information. Retention, deletion,
     privacy notice, access policy, and any applicable consent requirements
     must be confirmed with the organization.
@@ -421,8 +423,174 @@ Never commit .env.local.
     is live and that real records load before entering production data.
 
 
-10. FILES CREATED OR MODIFIED
-=============================
+11. DASHBOARD ROLE AND ADMINISTRATION UPDATE
+============================================
+
+This section records the subsequent role-based dashboard implementation and
+supersedes earlier descriptions of the staff roles as simply Admin/Encoder.
+The current implementation is in the publishing clone and remains uncommitted
+and undeployed; the database migration has not been applied to Supabase.
+The owner previously deployed the earlier backend connection and health-check
+changes; this statement applies only to the dashboard role redesign described
+in this section.
+
+11.1 Role mapping and access
+---------------------------
+
+The agreed role names and migration mapping are:
+
+  - Existing Admin accounts become SuperAdmin.
+  - Existing Encoder accounts become Admin.
+  - Paravet remains Paravet.
+
+SuperAdmin has full dashboard access, staff account administration, access to
+the system controls and database export, and can toggle maintenance mode and
+feature availability for Admin and Paravet roles.
+
+Admin is the City Vet encoder/reporter role. It can work with operational
+records, field operations, reports, data-quality checks, and data imports. It
+cannot administer staff accounts or change system controls.
+
+Paravet navigation is restricted to census encoding and masterlist access.
+The records API only permits Paravet writes to respondents, households, and
+animals; owners and pets are read-only masterlist datasets. API record
+queries, archive operations, import operations, and import undo enforce the
+assigned barangay. Upserts include a database-side conflict condition so a
+concurrent write cannot replace a different barangay's row.
+
+The Paravet check is an application/API authorization check against the record
+JSONB barangay field. PostgreSQL RLS has not been configured. This is an
+important remaining security architecture task before the project claims
+database-enforced multi-tenancy.
+
+11.2 Database installation and migration
+-----------------------------------------
+
+Fresh database setup:
+
+  1. Run db/000_ekapon_schema.sql. The account enum already contains
+     SuperAdmin, Admin, Paravet, and User, plus the system-maintenance and
+     role-feature tables.
+  2. Run db/001_create_api_role.sql after setting the role password.
+  3. Replace sample staff passwords before production use.
+
+Existing database upgrade:
+
+  1. Confirm that this is the intended Supabase project and that a current
+     database backup exists.
+  2. Apply db/002_fix_verify_password.sql only if the earlier installation
+     needs it, then db/003_dashboard_records.sql if dashboard persistence is
+     not present.
+  3. Apply db/004_dashboard_roles.sql exactly once. It renames the existing
+     account enum values and creates the maintenance and role-feature tables.
+  4. Deploy the matching API/frontend code only after the migration succeeds.
+
+Do not run db/004_dashboard_roles.sql against a new database: the fresh schema
+already uses the new role values. Do not run db/000_ekapon_schema.sql against
+an existing database. The migration was not executed by this development
+session and requires the project owner's action in the correct Supabase
+project.
+
+11.3 Navigation, dashboard, and analytics UX
+--------------------------------------------
+
+The dashboard navigation is reorganized under Workspace, Operations,
+Registry, Insights, Data management, Administration, and Public services.
+Visible routes are filtered by role and by SuperAdmin feature switches.
+SuperAdmin controls are rendered in Settings. Maintenance mode blocks regular
+Admin/Paravet access while keeping the SuperAdmin management path available.
+
+The participation funnel and program panels are moved from the main dashboard
+to the Reports/analytics view to reduce dashboard density. The reports view
+adds live-record monthly activity, a comparison of the latest three months
+with the preceding three months, an interpretation, upcoming-program count,
+and a cautious linear planning estimate. It excludes browser demo seed rows.
+The estimate is withheld unless at least 10 dated live records across at
+least 3 distinct months exist; it is a planning signal, not a forecast
+guarantee or audited KPI.
+
+At sign-in, the dashboard offers to return to the last allowed section, with
+the dashboard as an alternative. Navigation is grouped and restricted
+according to role. A native browser beforeunload confirmation is used for
+leaving the signed-in dashboard; browsers do not support a dependable custom
+close-tab modal.
+
+11.4 SuperAdmin database export
+-------------------------------
+
+The GET /api/v1/admin/backup endpoint is SuperAdmin-only. The Settings panel
+downloads a JSON export containing application dashboard records, sanitized
+account rows, barangay reference data, public pre-listings, audit history,
+and system/role controls. Password hashes and sensitive credential keys are
+excluded from the export. The export is intended as an offline backup and
+does not provide an import/restore path.
+
+This database export is independent from the pre-existing browser-local
+backup/restore utility in Settings. The latter only operates on localStorage
+and must not be described as a Supabase database backup.
+
+11.5 Latest implementation checks and outstanding validation
+-------------------------------------------------------------
+
+Successful checks in the publishing clone:
+
+  - npm run typecheck passed after the role, controls, scoping, analytics,
+    backup, and documentation changes.
+  - node --check role-dashboard.js passed.
+  - tests/api-dispatch.test.ts passed (3 tests).
+  - tests/http-write-logging.test.ts passed (2 tests).
+  - tests/dashboard-contract.test.ts passed (3 tests).
+
+The targeted auth/accounts suite could not complete because its integration
+tests require a PostgreSQL server at localhost:5432; the connection was
+refused. No TEST_DATABASE_URL or disposable PostgreSQL database was available.
+The Supabase SQL migration was not executed, so transaction/query behavior
+against PostgreSQL and end-to-end role authorization remain to be verified
+after applying the migration to a safe test environment. Browser UI
+interaction and a Vercel deployment have not been validated in this phase.
+
+The latest dashboard redesign changes are uncommitted and have not been pushed
+or deployed. They are being developed in:
+
+  C:\Users\Rei\Downloads\Environment Testing\ubiquitous-octo-system-publish
+
+The original project folder is not the Git publishing clone. Review the
+publishing clone's worktree and deploy only after the database migration,
+database-backed tests, and manual role-based browser checks are complete.
+
+11.6 Files updated for this phase
+---------------------------------
+
+Database and server authorization:
+  db/000_ekapon_schema.sql
+  db/004_dashboard_roles.sql
+  server/auth.ts
+  server/api-dispatch.ts
+  api-handlers/v1/admin/controls.ts
+  api-handlers/v1/admin/backup.ts
+  api-handlers/v1/accounts/*
+  api-handlers/v1/records/*
+  api-handlers/v1/prelistings/index.ts
+
+Frontend role UX, routing, live data and analytics:
+  role-dashboard.js
+  shell.js
+  api-client.js
+  login-api.js
+  accounts.js
+  views.js
+  sw.js
+
+Documentation and tests:
+  README-BACKEND.md
+  SETUP.txt
+  docs/API-01-auth-and-accounts.md
+  docs/API-02-dashboard.md
+  tests/auth-accounts.test.ts
+  tests/api-dispatch.test.ts
+
+12. ORIGINAL FILES CREATED OR MODIFIED
+=======================================
 
 Created:
   .env.example

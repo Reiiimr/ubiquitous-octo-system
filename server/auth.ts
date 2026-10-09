@@ -2,11 +2,11 @@ import type { IncomingMessage } from 'node:http';
 import { SignJWT, jwtVerify } from 'jose';
 import { config } from './config';
 import { sql } from './db';
-import { forbidden, unauthenticated } from './errors';
+import { AppError, forbidden, unauthenticated } from './errors';
 
 export const COOKIE = 'ekapon_session';
 export type Scope = 'full' | 'reset';
-export type AccountType = 'Admin' | 'Encoder' | 'Paravet' | 'User';
+export type AccountType = 'SuperAdmin' | 'Admin' | 'Paravet' | 'User';
 
 export interface Session {
   id: number;
@@ -15,6 +15,8 @@ export interface Session {
   key: string | null;
   username: string | null;
   name: string;
+  barangayId: number | null;
+  barangay: string | null;
 }
 
 const secret = () => new TextEncoder().encode(config().jwtSecret);
@@ -48,7 +50,14 @@ function readCookie(req: IncomingMessage): string | null {
  * Verifies the session cookie AND re-checks the account in the database on every request,
  * so disabling, locking or archiving an account takes effect immediately.
  */
-export async function requireAuth(req: IncomingMessage, opts: { roles?: AccountType[]; scope?: Scope } = {}): Promise<Session> {
+function featureForPath(path: string): string | null {
+  if (/^\/api\/v1\/(records|prelistings)/.test(path)) return 'registry';
+  if (/^\/api\/v1\/accounts/.test(path)) return 'settings';
+  if (/^\/api\/v1\/activity/.test(path)) return 'reports';
+  return null;
+}
+
+export async function requireAuth(req: IncomingMessage, opts: { roles?: AccountType[]; scope?: Scope; allowMaintenance?: boolean } = {}): Promise<Session> {
   const token = readCookie(req);
   if (!token) throw unauthenticated();
   let payload;
@@ -61,10 +70,38 @@ export async function requireAuth(req: IncomingMessage, opts: { roles?: AccountT
   if (payload.scope !== wantScope) throw unauthenticated(wantScope === 'full' ? 'Finish creating your new password first.' : 'Please sign in again.');
   const id = Number(payload.sub);
   const [a] = await sql()`
-    select id, account_type::text as type, account_key, username::text as username, full_name, status::text as status
-      from ekapon.accounts where id = ${id} and archived_at is null`;
+    select a.id, a.account_type::text as type, a.account_key, a.username::text as username,
+           a.full_name, a.status::text as status, a.barangay_id, b.name as barangay
+      from ekapon.accounts a
+      left join ekapon.barangays b on b.id = a.barangay_id
+     where a.id = ${id} and a.archived_at is null`;
   const expected = wantScope === 'full' ? 'Active' : 'Password reset required';
   if (!a || a.status !== expected) throw unauthenticated('Your session is no longer valid. Please sign in again.');
   if (opts.roles && !opts.roles.includes(a.type)) throw forbidden();
-  return { id: a.id, type: a.type, scope: wantScope, key: a.account_key, username: a.username, name: a.full_name };
+  if (wantScope === 'full' && a.type !== 'SuperAdmin' && !opts.allowMaintenance) {
+    const [maintenance] = await sql()`
+      select setting_value = 'true'::jsonb as enabled
+        from ekapon.system_settings where setting_key = 'maintenance_mode'`;
+    if (maintenance?.enabled) {
+      throw new AppError(503, 'MAINTENANCE_MODE', 'The dashboard is temporarily under maintenance. Please try again later.');
+    }
+    const feature = (req as IncomingMessage & { appFeature?: string }).appFeature
+      ?? featureForPath(new URL(req.url ?? '/', 'http://localhost').pathname);
+    if (feature) {
+      const [access] = await sql()`
+        select enabled from ekapon.role_feature_access
+         where account_type = ${a.type} and feature_key = ${feature}`;
+      if (access && !access.enabled) throw forbidden('This feature is currently disabled for your account type.');
+    }
+  }
+  return {
+    id: a.id,
+    type: a.type,
+    scope: wantScope,
+    key: a.account_key,
+    username: a.username,
+    name: a.full_name,
+    barangayId: a.barangay_id,
+    barangay: a.barangay,
+  };
 }

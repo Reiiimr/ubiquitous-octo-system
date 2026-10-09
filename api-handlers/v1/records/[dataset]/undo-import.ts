@@ -6,12 +6,24 @@ import { dataset } from '../../../../server/dashboard';
 import { conflict, forbidden, notFound } from '../../../../server/errors';
 
 const bodySchema = z.object({ batchId: z.string().uuid() });
+const PARAVET_DATASETS = new Set(['respondents', 'households', 'animals']);
 
 export default route({
   POST: async (c) => {
-    const session = await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    const session = await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin', 'Paravet'] });
     const kind = dataset(c.query.dataset);
+    if (session.type === 'Paravet' && !PARAVET_DATASETS.has(kind)) throw forbidden('This dataset is not available to Paravets.');
     const { batchId } = parse(bodySchema, c.body);
+    if (session.type === 'Paravet') {
+      const deleted = await tx(session.id, (q) => q`
+        delete from ekapon.census_submissions
+         where submission_id = ${batchId}::uuid
+           and actor_id = ${session.id}
+           and status = 'pending'
+        returning submission_id`);
+      if (!deleted.length) throw conflict('SUBMISSION_NOT_PENDING', 'This pending census submission can no longer be removed.');
+      return ok({ undone: true, batchId });
+    }
     await tx(session.id, async (q) => {
       const [batch] = await q`
         select dataset, actor_id, undone_at

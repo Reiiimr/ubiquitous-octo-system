@@ -23,14 +23,17 @@ const query = listQuery.pick({ page: true, pageSize: true });
 
 export default route({
   GET: async (c) => {
-    await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    const session = await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin', 'Paravet'] });
     const f = parse(query, c.query);
-    const [{ total }] = await sql()`select count(*)::int as total from ekapon.prelistings`;
+    const [{ total }] = await sql()`
+      select count(*)::int as total from ekapon.prelistings
+       where (${session.type !== 'Paravet'} or barangay_id = ${session.barangayId ?? -1})`;
     const rows = await sql()`
       select p.reference, p.owner_name, p.mobile, b.name as barangay, p.program, p.pets,
              (p.submitted_at at time zone 'Asia/Manila')::date::text as date
         from ekapon.prelistings p
         join ekapon.barangays b on b.id = p.barangay_id
+        where (${session.type !== 'Paravet'} or p.barangay_id = ${session.barangayId ?? -1})
        order by p.submitted_at desc, p.reference
        limit ${f.pageSize} offset ${(f.page - 1) * f.pageSize}`;
     return ok({

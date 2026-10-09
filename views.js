@@ -113,6 +113,52 @@
     const bk = CV.read('cityvet.basket', []); $('rpBasket').innerHTML = bk.length ? `<table><thead><tr><th>Dataset</th><th>Record</th><th>Label</th><th class="noprint"></th></tr></thead><tbody>${bk.map((b, i) => `<tr><td>${esc(b.kind)}</td><td>${esc(b.id)}</td><td>${esc(b.label)}</td><td class="noprint"><button class="cv-btn" data-rm="${i}">Remove</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No records selected yet. Tick records in any list and choose “Use for report”.</p>';
     $('rpDate').textContent = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'long', timeStyle: 'short' });
   }
+  function analytics() {
+    const root = $('rpLiveAnalytics');
+    if (!root) return;
+    if (!window.CVApi || !CVApi.live || !CVApi.dataReady) {
+      root.innerHTML = '<p class="muted">Connect to the live database to see operational trends. Demonstration records are excluded from forecasting.</p>';
+      return;
+    }
+    const liveRows = ['owners', 'pets', 'respondents', 'households', 'animals', 'stubs', 'services', 'programs', 'participants']
+      .flatMap(kind => CVApi.records(kind).map(row => ({ ...row, dataset: kind })));
+    const dated = liveRows.map(row => {
+      const date = String(row.date || row.service_date || row.registered_on || row.created_at || '');
+      return { ...row, month: date.match(/^\d{4}-\d{2}/)?.[0] || '' };
+    }).filter(row => row.month);
+    const today = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+    }
+    const counts = months.map(month => dated.filter(row => row.month === month).length);
+    const recordedMonths = counts.filter(count => count > 0).length;
+    const firstQuarter = counts.slice(0, 3).reduce((sum, count) => sum + count, 0);
+    const recentQuarter = counts.slice(3).reduce((sum, count) => sum + count, 0);
+    const change = recentQuarter - firstQuarter;
+    let interpretation = 'There is not yet enough live history to describe a reliable direction.';
+    if (recordedMonths >= 3 && dated.length >= 10) {
+      interpretation = change > 0
+        ? `Saved operational records increased by ${change} in the most recent three-month period compared with the preceding three months.`
+        : change < 0
+          ? `Saved operational records decreased by ${Math.abs(change)} in the most recent three-month period compared with the preceding three months.`
+          : 'Saved operational record volume was unchanged between the two three-month periods.';
+    }
+    let prediction = 'A projection is withheld until at least 10 dated live records across 3 distinct months are available.';
+    if (recordedMonths >= 3 && dated.length >= 10) {
+      const xMean = 2.5;
+      const yMean = counts.reduce((sum, count) => sum + count, 0) / counts.length;
+      const numerator = counts.reduce((sum, count, index) => sum + (index - xMean) * (count - yMean), 0);
+      const denominator = counts.reduce((sum, _count, index) => sum + (index - xMean) ** 2, 0);
+      const estimate = Math.max(0, Math.round(yMean + (numerator / denominator) * 3.5));
+      prediction = `Simple linear trend estimates about ${estimate} saved operational records next month. This is a planning signal, not a guarantee; it assumes recent volume continues and does not account for staffing, seasonality, or program capacity.`;
+    }
+    const bars = months.map((month, index) => `<div class="srow"><span>${month}</span><strong>${counts[index].toLocaleString()}</strong></div>`).join('');
+    const programs = CVApi.records('programs');
+    const upcoming = programs.filter(row => row.date >= TODAY && !['Cancelled', 'Completed'].includes(row.status)).length;
+    root.innerHTML = `<div class="stats"><div class="stat"><div class="num">${liveRows.length.toLocaleString()}</div><div class="label">Persisted live records</div></div><div class="stat"><div class="num">${upcoming}</div><div class="label">Upcoming programs from database</div></div><div class="stat"><div class="num">${recordedMonths}/6</div><div class="label">Months with dated activity</div></div></div><h3>Persisted record activity by month</h3>${bars || '<p class="muted">No dated records were found.</p>'}<h3>Interpretation</h3><p>${esc(interpretation)}</p><h3>Planning estimate</h3><p>${esc(prediction)}</p><p class="muted">Analytics use records returned by the authenticated database API only; browser demo seeds are excluded. Counts combine operational datasets and may include records describing different workflow stages. Verify against source reports before external publication.</p>`;
+  }
   function initReports() {
     if (!$('rpMetric')) return;
     $('rpMetric').innerHTML = Object.entries(MET).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
@@ -157,7 +203,7 @@
     CV.log('Backup restored', pack.created); await CVDialog.open({ title: 'Restarting', kind: 'success', html: '<p>Backup restored. The website will restart now.</p>', actions: [{ label: 'Restart now', primary: true, value: 1 }] }); location.reload();
   });
   const bi = $('bkInfo'); if (bi) { const lb = CV.read('cityvet.lastBackup', null); bi.textContent = lb ? `Last backup: ${new Date(lb).toLocaleString('en-PH')}` : 'No backup has been exported yet.'; }
-  function all() { dash(); programs(); programDay(); stubs(); pvs(); reports(); dq(); }
+  function all() { dash(); programs(); programDay(); stubs(); pvs(); reports(); analytics(); dq(); }
   const vis = id => $(id) && $(id).offsetParent !== null; let dirty = true;
   const run = () => { dirty = false; all(); };
   initReports(); run();

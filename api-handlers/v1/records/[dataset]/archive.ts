@@ -5,7 +5,7 @@ import { archiveBatch, dataset } from '../../../../server/dashboard';
 
 export default route({
   POST: async (c) => {
-    const session = await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    const session = await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin'] });
     const kind = dataset(c.query.dataset);
     const body = parse(archiveBatch, c.body);
     const changed = await tx(session.id, async (q) => {

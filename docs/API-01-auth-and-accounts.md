@@ -4,6 +4,8 @@ Base path `/api/v1`. JSON in, JSON out. Errors: `{"error":{"code","message","det
 Cookie session (`ekapon_session`). Non-GET requests need an `Origin` header matching the site (browsers send it; with curl add `-H "Origin: http://localhost:3000"`).
 
 ## Auth
+Staff roles are `SuperAdmin`, `Admin`, and `Paravet`. The existing-install role migration maps old `Admin` accounts to `SuperAdmin` and old `Encoder` accounts to `Admin`.
+
 | Method & path | Who | Body → result |
 |---|---|---|
 | `POST /auth/login` | anyone | `{identifier, password}` → `{account}` + cookie. Staff: username. Paravet/User: account key. Errors: 401 `INVALID_CREDENTIALS`, 423 `ACCOUNT_LOCKED`, 403 `FIRST_SIGN_IN_REQUIRED`, 429 `TOO_MANY_ATTEMPTS` |
@@ -16,7 +18,7 @@ Cookie session (`ekapon_session`). Non-GET requests need an `Origin` header matc
 ## Barangays
 `GET /barangays?q=&district=1|2` — public, cached 1 hour. → `{data:[{id,acronym,name,district,zip}], total}` (62 rows without filters).
 
-## Accounts (Admin only)
+## Accounts (SuperAdmin only)
 | Method & path | Purpose |
 |---|---|
 | `GET /accounts` | List. Query: `page, pageSize (≤500), sort (name\|key\|type\|barangay\|status\|created), dir, q, type, barangay, status, year, month, archived` → `{data,page,pageSize,total}` |

@@ -3,10 +3,10 @@
 Stack: Vercel serverless functions (`/api`, Node 20+, TypeScript) + Supabase PostgreSQL. The static prototype and the API live in the same Vercel project.
 
 ## 1. Database (once)
-1. For a **new** Supabase project, run `db/000_ekapon_schema.sql` in the SQL Editor. It creates the schema, staff accounts, barangays and dashboard storage.
-   For an existing install of the earlier auth/accounts schema, run `db/002_fix_verify_password.sql` if needed, then `db/003_dashboard_records.sql`. Do not run the fresh-install migration over an existing database.
+1. For a **new** Supabase project, run `db/000_ekapon_schema.sql` in the SQL Editor. It creates the schema, staff accounts, barangays, dashboard storage, role controls, and maintenance settings. Then run `db/005_census_submissions.sql` and `db/006_census_submitter_retention.sql`.
+   For an existing install of the earlier auth/accounts schema, run `db/002_fix_verify_password.sql` if needed, then `db/003_dashboard_records.sql`, then `db/004_dashboard_roles.sql`, and finally `db/005_census_submissions.sql` and `db/006_census_submitter_retention.sql`. The role migration renames the existing `Admin` role to `SuperAdmin` and `Encoder` to `Admin`; apply it exactly once and only after confirming the target project. Do not run the fresh-install migration over an existing database.
 2. Edit the password in `db/001_create_api_role.sql`, then run it. This creates the restricted `ekapon_api` login the API uses.
-3. Change the sample staff passwords (`admin`, `encoder`, currently `ChangeMe-123`) before the site is public. In the SQL editor:
+3. Change the sample staff passwords (`admin` is SuperAdmin, `encoder` is Admin; both initially use `ChangeMe-123`) before the site is public. In the SQL editor:
    `select ekapon.set_permanent_password(id, 'A-new-strong-password-1') from ekapon.accounts where username = 'admin';` — this works while the account status is `Active` (it keeps `Active`).
 
 ## 2. Vercel
@@ -35,8 +35,10 @@ Never commit `.env.local` or paste database credentials into source files. For V
 
 ## Connected modules
 - Staff sign-in, sessions, accounts and public barangay reference data use the existing `/api/v1` endpoints.
-- The current dashboard's owners, pets, paravets, respondents, households, census animals, stubs, services, programs and participants use authenticated `/api/v1/records/{dataset}` endpoints. Create/import/archive/restore and import undo operations persist in PostgreSQL. CSV imports cover all of these operational datasets.
+- The current dashboard's owners, pets, paravets, respondents, households, census animals, stubs, services, programs and participants use authenticated `/api/v1/records/{dataset}` endpoints. Admin/SuperAdmin create/import/archive/restore operations persist in PostgreSQL. Paravet census forms/imports are kept in `ekapon.census_submissions` pending Admin/SuperAdmin review and are applied to approved records only after approval.
 - Public owner pre-listings are validated and persisted through `/api/v1/prelistings`; staff can review them through the dashboard. Staff activity entries use the database audit log.
+- The dashboard has `SuperAdmin`, `Admin`, and `Paravet` roles. SuperAdmin controls maintenance mode, feature availability for Admin/Paravet, account administration, and a server-generated database backup. Admin handles city-wide operational encoding and reporting. Paravets can submit census forms for their assigned barangay; they cannot directly mutate approved records.
+- The SuperAdmin database backup downloads application records, accounts without credential hashes, barangays, pre-listings, audit history with credential-hash keys removed, and role/system controls as JSON. It is an export, not a database restore tool.
 - The older standalone `app.js` clinic workflow is not connected by this integration.
 
 `api-client.js` probes `/api/v1/health`. If the API answers, live rows come from the backend; if not, the app stays in browser-only demonstration mode. Do not use demo mode for real clinic records.
@@ -49,9 +51,15 @@ Switching to live mode does not automatically copy browser-local demo rows or ea
 - Writes require a matching `Origin` (cross-site request blocking). Sign-in is limited per account (DB lockout) and per IP (`LOGIN_IP_MAX_FAILURES`, default 20 per 15 minutes).
 - Every change is attributed in `audit_log` through `app.account_id` set per transaction.
 
+## Role permissions and deployment note
+- `db/004_dashboard_roles.sql` must be applied to an existing installation before deploying the redesigned dashboard. It is not safe to run against a new installation (the new account type names are already created by `db/000_ekapon_schema.sql`). The migration was not applied automatically.
+- Paravet census submissions are scoped in the API using the signed-in account's barangay and checked against each submitted record. PostgreSQL row-level security is not configured; future normalized schemas should add database-enforced policies.
+- Browser-native leave-site confirmation is used when a signed-in user attempts to leave; browsers do not permit a reliable custom close-tab modal.
+- Live analytics use database-backed rows only. The trend compares the latest three months with the prior three months, while the simple next-month planning estimate is withheld until at least 10 dated live records across at least 3 months exist. The combined dataset count is an operational signal, not an audited KPI.
+
 ## Known limits (honest list)
 - Unknown-account sign-ins skip the password hash, so response timing could reveal whether an account exists. Add a dummy hash check before production hardening.
 - Per-IP limiting relies on the platform's forwarded IP header; configure Vercel WAF/rate limiting or CAPTCHA in front of public pre-listing before public launch.
 - Temporary passwords are shown to the admin; delivery by SMS/email is not built.
 - Evolving dashboard operational rows use JSONB with an explicit dataset allowlist so the current UI can share durable data without pretending the unfinished Prisma model is active. Per-domain normalized models and row-level tenancy policies remain future work.
-- Notification preferences, report selections, display/theme settings and backup files are still browser-local utility state; the standalone legacy `app.js` remains a separate prototype.
+- Notification preferences, report selections, display/theme settings, and the existing restore workflow are still browser-local utility state; the standalone legacy `app.js` remains a separate prototype. The new SuperAdmin JSON export is a separate database snapshot.

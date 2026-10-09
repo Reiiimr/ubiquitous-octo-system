@@ -64,4 +64,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && ov && [...document.querySelectorAll('.dlg-overlay')].pop() === ov) close(); });
   ['cv-notes', 'storage', 'focus'].forEach(ev => window.addEventListener(ev, () => { badge(); if (ov) draw(); }));
   badge();
+  const roleUi = document.createElement('script');
+  roleUi.src = 'role-dashboard.js';
+  document.body.appendChild(roleUi);
 })();

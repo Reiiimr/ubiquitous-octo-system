@@ -12,7 +12,7 @@ const bodySchema = z.object({
 
 export default route({
   GET: async (c) => {
-    await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin'] });
     const { page, pageSize } = parse(query, c.query);
     const [{ total }] = await sql()`
       select count(*)::int as total from ekapon.audit_log where table_name = 'activity'`;
@@ -37,7 +37,7 @@ export default route({
   },
 
   POST: async (c) => {
-    const session = await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    const session = await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin'] });
     const { action, detail } = parse(bodySchema, c.body);
     await tx(session.id, (q) => q`select ekapon.log_activity(${action}, ${detail})`);
     return ok({ logged: true });

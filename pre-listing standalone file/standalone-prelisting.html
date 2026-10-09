@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#126b4b">
+  <title>Pet Program Pre-listing | City Veterinary Office</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18332b;
+      --muted: #60736c;
+      --line: #d9e4df;
+      --green: #126b4b;
+      --green-dark: #0b5037;
+      --soft: #f1f7f4;
+      --danger: #a32626;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f8f6; color: var(--ink); line-height: 1.5; }
+    .page { width: min(100% - 28px, 760px); margin: 32px auto; }
+    .brand { color: var(--green); font-size: .9rem; font-weight: 700; letter-spacing: .03em; }
+    h1 { margin: 8px 0; font-size: clamp(1.7rem, 5vw, 2.35rem); line-height: 1.15; }
+    h2 { margin: 0; font-size: 1.15rem; }
+    .intro, .note { color: var(--muted); }
+    .card { margin-top: 20px; padding: clamp(18px, 4vw, 28px); background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 30px #18332b0c; }
+    .status { margin: 18px 0 0; padding: 11px 14px; border-radius: 9px; background: var(--soft); color: var(--muted); font-size: .92rem; }
+    .status[data-kind="error"] { color: var(--danger); background: #fff0f0; }
+    .status[data-kind="success"] { color: var(--green-dark); background: #e9f7ef; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .field { display: grid; gap: 6px; margin: 14px 0; }
+    .field.full { grid-column: 1 / -1; }
+    label, legend { font-weight: 650; }
+    input, select { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #b9cbc2; border-radius: 8px; background: #fff; color: var(--ink); font: inherit; }
+    input:focus, select:focus, button:focus-visible { outline: 3px solid #77c4a0; outline-offset: 2px; }
+    fieldset { min-width: 0; margin: 18px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+    legend { padding: 0 6px; }
+    .pet { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+    .pet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pet-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--green); border-radius: 8px; background: #fff; color: var(--green-dark); font: inherit; font-weight: 700; cursor: pointer; }
+    button.primary { background: var(--green); color: #fff; }
+    button:hover:not(:disabled) { filter: brightness(.95); }
+    button:disabled { cursor: wait; opacity: .65; }
+    button.remove { min-height: 36px; padding: 6px 10px; border-color: var(--line); color: var(--danger); font-size: .88rem; }
+    .privacy { font-size: .9rem; }
+    .success-ref { display: inline-block; margin: 8px 0; padding: 8px 12px; border: 1px dashed var(--green); border-radius: 8px; color: var(--green-dark); font-size: 1.2rem; font-weight: 750; }
+    [hidden] { display: none !important; }
+    @media (max-width: 560px) {
+      .page { margin: 20px auto; }
+      .grid, .pet-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .actions button { flex: 1 1 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <p class="brand">CITY VETERINARY OFFICE · SAN JOSE DEL MONTE</p>
+    <h1>Pet Program Pre-listing</h1>
+    <p class="intro">Paunang pagpapalista ng alaga. Submit your details to request consideration for a City Veterinary Office program. This is a pre-listing, not a confirmed appointment; staff will verify the details.</p>
+
+    <div id="connection" class="status" role="status" aria-live="polite">Checking connection to the submission service…</div>
+
+    <section class="card" aria-labelledby="form-title">
+      <h2 id="form-title">Owner and program details</h2>
+      <form id="prelisting-form">
+        <div class="grid">
+          <div class="field full">
+            <label for="owner">Pangalan ng may-ari / Owner name</label>
+            <input id="owner" name="owner" autocomplete="name" maxlength="120" required>
+          </div>
+          <div class="field">
+            <label for="mobile">Mobile number</label>
+            <input id="mobile" name="mobile" type="tel" inputmode="tel" autocomplete="tel" placeholder="09XX-XXX-XXXX" pattern="09[0-9]{2}[- ]?[0-9]{3}[- ]?[0-9]{4}" required>
+          </div>
+          <div class="field">
+            <label for="barangay">Barangay</label>
+            <select id="barangay" name="barangay" required>
+              <option value="">Choose your barangay</option>
+              <option>Assumption</option>
+              <option>Bagong Buhay I</option><option>Bagong Buhay II</option><option>Bagong Buhay III</option>
+              <option>Citrus</option><option>Ciudad Real</option><option>Dulong Bayan</option>
+              <option>Fatima I</option><option>Fatima II</option><option>Fatima III</option><option>Fatima IV</option><option>Fatima V</option>
+              <option>Francisco Homes–Guijo</option><option>Francisco Homes–Mulawin</option><option>Francisco Homes–Narra</option><option>Francisco Homes–Yakal</option>
+              <option>Gaya-Gaya</option><option>Graceville</option><option>Gumaoc Central</option><option>Gumaoc East</option><option>Gumaoc West</option>
+              <option>Kaybanban</option><option>Kaypian</option><option>Lawang Pari</option><option>Maharlika</option>
+              <option>Minuyan I</option><option>Minuyan II</option><option>Minuyan III</option><option>Minuyan IV</option><option>Minuyan Proper</option><option>Minuyan V</option>
+              <option>Muzon East</option><option>Muzon Proper</option><option>Muzon South</option><option>Muzon West</option>
+              <option>Paradise III</option><option>Poblacion</option><option>Poblacion I</option><option>San Isidro</option><option>San Manuel</option>
+              <option>San Martin I</option><option>San Martin II</option><option>San Martin III</option><option>San Martin IV</option><option>San Martin de Porres</option>
+              <option>San Pedro</option><option>San Rafael I</option><option>San Rafael II</option><option>San Rafael III</option><option>San Rafael IV</option><option>San Rafael V</option>
+              <option>San Roque</option><option>Santa Cruz I</option><option>Santa Cruz II</option><option>Santa Cruz III</option><option>Santa Cruz IV</option><option>Santa Cruz V</option>
+              <option>Santo Cristo</option><option>Santo Niño I</option><option>Santo Niño II</option><option>Sapang Palay Proper</option><option>Tungkong Mangga</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="program">Programa / Program requested</label>
+            <select id="program" name="program" required>
+              <option>Kapon (spay / neuter)</option>
+              <option>Anti-rabies</option>
+              <option>Microchip</option>
+              <option>Lahat / All three</option>
+            </select>
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>Mga alaga / Pets (1–10)</legend>
+          <div id="pets"></div>
+          <button id="add-pet" type="button">+ Add another pet</button>
+        </fieldset>
+
+        <p class="note privacy">Your details and pet information will be sent to the City Veterinary Office for program coordination. Do not submit someone else's information without permission.</p>
+        <div class="actions">
+          <button class="primary" id="submit" type="submit">Isumite / Submit pre-listing</button>
+        </div>
+      </form>
+      <section id="success" hidden aria-live="polite">
+        <h2>Salamat! / Thank you!</h2>
+        <p>Your pre-listing was received. Save this reference number and show it to the Paravet. It is not a confirmed appointment.</p>
+        <p class="success-ref" id="reference"></p>
+        <button id="new-submission" type="button">Submit another pre-listing</button>
+      </section>
+    </section>
+    <p class="note privacy">Need help? Contact your barangay Paravet. This standalone page does not require the dashboard interface.</p>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+      const form = document.getElementById('prelisting-form');
+      const petsRoot = document.getElementById('pets');
+      const connection = document.getElementById('connection');
+      const submit = document.getElementById('submit');
+      const success = document.getElementById('success');
+      const petLimit = 10;
+      let connected = false;
+      let petId = 0;
+
+      function setStatus(message, kind) {
+        connection.textContent = message;
+        connection.dataset.kind = kind || '';
+      }
+
+      function addPet() {
+        if (petsRoot.children.length >= petLimit) return;
+        petId += 1;
+        const card = document.createElement('section');
+        card.className = 'pet';
+        card.innerHTML = `
+          <div class="pet-head"><h3>Pet ${petsRoot.children.length + 1}</h3>
+            <button class="remove" type="button" data-remove>Remove</button></div>
+          <div class="pet-grid">
+            <div class="field"><label for="pet-name-${petId}">Pangalan ng alaga / Pet name</label>
+              <input id="pet-name-${petId}" data-name maxlength="80" required></div>
+            <div class="field"><label for="pet-species-${petId}">Species</label>
+              <select id="pet-species-${petId}" data-species><option value="Dog">Aso / Dog</option><option value="Cat">Pusa / Cat</option></select></div>
+            <div class="field"><label for="pet-sex-${petId}">Sex</label>
+              <select id="pet-sex-${petId}" data-sex><option value="Male">Lalaki / Male</option><option value="Female">Babae / Female</option></select></div>
+            <div class="field"><label for="pet-age-${petId}">Age in years</label>
+              <input id="pet-age-${petId}" data-age type="number" min="0" max="50" step="0.1" value="0" required></div>
+          </div>`;
+        card.querySelector('[data-remove]').addEventListener('click', function () {
+          if (petsRoot.children.length <= 1) return;
+          card.remove();
+          [...petsRoot.children].forEach((pet, index) => { pet.querySelector('h3').textContent = `Pet ${index + 1}`; });
+          updatePetButton();
+        });
+        petsRoot.appendChild(card);
+        updatePetButton();
+      }
+
+      function updatePetButton() {
+        const button = document.getElementById('add-pet');
+        button.disabled = petsRoot.children.length >= petLimit;
+        button.textContent = button.disabled ? 'Maximum of 10 pets reached' : '+ Add another pet';
+        [...petsRoot.querySelectorAll('[data-remove]')].forEach(button => {
+          button.disabled = petsRoot.children.length <= 1;
+        });
+      }
+
+      async function checkService() {
+        if (location.protocol === 'file:') {
+          setStatus('Open this page through the local project server or deployed site to submit to the database.', 'error');
+          return;
+        }
+        try {
+          const response = await fetch('/api/v1/health', { credentials: 'same-origin', cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok || result.ok !== true) throw new Error('Submission service is not available.');
+          connected = true;
+          setStatus('Connected. Submissions will be sent securely to the City Veterinary Office.', 'success');
+        } catch (error) {
+          connected = false;
+          setStatus(`Not connected to the submission service. Your form can be completed, but submission is unavailable. ${error.message}`, 'error');
+        }
+      }
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!connected) {
+          setStatus('Submission was not sent. Connect to the local or hosted submission service, then try again.', 'error');
+          return;
+        }
+        const pets = [...petsRoot.children].map(card => ({
+          name: card.querySelector('[data-name]').value.trim(),
+          species: card.querySelector('[data-species]').value,
+          sex: card.querySelector('[data-sex]').value,
+          age: Number(card.querySelector('[data-age]').value),
+        }));
+        const payload = {
+          owner: form.elements.owner.value.trim(),
+          mobile: form.elements.mobile.value.trim(),
+          barangay: form.elements.barangay.value,
+          program: form.elements.program.value,
+          pets,
+        };
+        submit.disabled = true;
+        setStatus('Submitting your pre-listing…');
+        try {
+          const response = await fetch('/api/v1/prelistings', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result?.error?.message || 'Submission failed. Please check your details and try again.');
+          document.getElementById('reference').textContent = result.ref;
+          form.hidden = true;
+          success.hidden = false;
+          setStatus('Your pre-listing was received.', 'success');
+        } catch (error) {
+          setStatus(`Submission failed: ${error.message}`, 'error');
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById('add-pet').addEventListener('click', addPet);
+      document.getElementById('new-submission').addEventListener('click', () => {
+        form.reset();
+        petsRoot.replaceChildren();
+        addPet();
+        success.hidden = true;
+        form.hidden = false;
+        setStatus('Ready for a new pre-listing.', connected ? 'success' : 'error');
+      });
+      addPet();
+      checkService();
+    })();
+  </script>
+</body>
+</html>

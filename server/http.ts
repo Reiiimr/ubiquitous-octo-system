@@ -6,7 +6,7 @@ import { config } from './config';
 import { AppError, badRequest, fromDb } from './errors';
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
-type Req = IncomingMessage & { query?: Record<string, string | string[]>; body?: unknown };
+type Req = IncomingMessage & { query?: Record<string, string | string[]>; body?: unknown; appFeature?: string };
 
 export class Reply {
   constructor(public status: number, public body: unknown, public headers: Record<string, string | string[]> = {}) {}

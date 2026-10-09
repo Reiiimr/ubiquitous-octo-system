@@ -5,7 +5,7 @@ import { sql, closeDb } from '../server/db';
 const uniq = Math.random().toString(36).slice(2, 7);
 const LAST = `Tester${uniq}`;
 let call: ReturnType<typeof client>, close: () => Promise<void>, base: string;
-let admin: string, encoder: string;
+let admin: string, encoder: string, paravet: string;
 let acct: { id: number; key: string };
 let tmp: string;
 
@@ -16,6 +16,10 @@ beforeAll(async () => {
   encoder = (await call('POST', '/api/v1/auth/login', { json: { identifier: 'encoder', password: 'ChangeMe-123' } })).cookie!;
 });
 afterAll(async () => {
+  await sql()`delete from ekapon.census_submissions
+               where actor_id in (select id from ekapon.accounts where last_name = ${LAST})
+                  or submitter_name = ${`Test ${LAST}`}`;
+  await sql()`delete from ekapon.dashboard_records where record_id like ${`TEST-CENSUS-${uniq}-%`}`;
   await sql()`delete from ekapon.accounts where last_name = ${LAST}`;
   await sql()`delete from ekapon.login_attempts`;
   await close(); await closeDb();
@@ -54,7 +58,7 @@ describe('sign-in and sessions', () => {
   it('sets a hardened cookie and returns the profile', async () => {
     const r = await call('POST', '/api/v1/auth/login', { json: { identifier: 'admin', password: 'ChangeMe-123' } });
     expect(r.setCookie).toMatch(/HttpOnly/); expect(r.setCookie).toMatch(/SameSite=Strict/);
-    expect(r.json.account.type).toBe('Admin');
+    expect(r.json.account.type).toBe('SuperAdmin');
     const me = await call('GET', '/api/v1/auth/me', { cookie: r.cookie }); expect(me.json.account.username).toBe('admin');
   });
   it('blocks cross-site writes', async () => {
@@ -73,7 +77,7 @@ describe('sign-in and sessions', () => {
 });
 
 describe('authorization', () => {
-  it('only Admin can use the accounts API', async () => {
+  it('only SuperAdmin can use the accounts API', async () => {
     const r = await call('GET', '/api/v1/accounts', { cookie: encoder }); expect(r.status).toBe(403);
     expect((await call('POST', '/api/v1/accounts', { cookie: encoder, json: {} })).status).toBe(403);
   });
@@ -138,6 +142,7 @@ describe('accounts', () => {
     const ok = await call('POST', '/api/v1/auth/set-password', { cookie: reset, json: { newPassword: 'Strong-Pass-1', confirmPassword: 'Strong-Pass-1' } });
     expect(ok.status).toBe(200);
     const me = await call('GET', '/api/v1/auth/me', { cookie: ok.cookie }); expect(me.json.account.type).toBe('Paravet');
+    paravet = ok.cookie!;
     expect((await call('GET', '/api/v1/accounts', { cookie: ok.cookie })).status).toBe(403);
     const login = await call('POST', '/api/v1/auth/login', { json: { identifier: acct.key, password: 'Strong-Pass-1' } }); expect(login.status).toBe(200);
   });
@@ -147,6 +152,90 @@ describe('accounts', () => {
     expect(locked.status).toBe(423); expect(locked.json.error.code).toBe('ACCOUNT_LOCKED');
     await sql()`update ekapon.accounts set locked_until = null, failed_login_count = 0 where id = ${acct.id}`;
     expect((await call('POST', '/api/v1/auth/login', { json: { identifier: acct.key, password: 'Strong-Pass-1' } })).status).toBe(200);
+  });
+  it('holds Paravet census data for Admin review and applies it only after approval', async () => {
+    const submissionId = crypto.randomUUID();
+    const householdId = `TEST-CENSUS-${uniq}-household`;
+    const animalId = `TEST-CENSUS-${uniq}-animal`;
+    const records = [
+      { dataset: 'households', record: { id: householdId, name: 'Test household', barangay: 'Tungkong Mangga', animals: 1 } },
+      { dataset: 'animals', record: { id: animalId, species: 'Dog', barangay: 'Tungkong Mangga', owner: 'Test household' } },
+    ];
+    expect((await call('POST', '/api/v1/records/animals', { cookie: paravet, json: { records: [records[1].record] } })).status).toBe(403);
+    expect((await call('POST', '/api/v1/records/animals/archive', { cookie: paravet, json: { ids: [animalId], archived: true } })).status).toBe(403);
+    const crossBarangay = await call('POST', '/api/v1/census/submissions', {
+      cookie: paravet,
+      json: { submissionId, label: 'Test census', records: [{ dataset: 'animals', record: { id: animalId, barangay: 'Muzon Proper' } }] },
+    });
+    expect(crossBarangay.status).toBe(403);
+    const submitted = await call('POST', '/api/v1/census/submissions', {
+      cookie: paravet,
+      json: { submissionId, label: 'Test census', records },
+    });
+    expect(submitted.status).toBe(200);
+    expect(submitted.json).toMatchObject({ submissionId, status: 'pending', recordCount: 2 });
+    const privateList = await call('GET', '/api/v1/census/submissions?status=all', { cookie: paravet });
+    expect(privateList.json.data.some((item: any) => item.id === submissionId)).toBe(true);
+    expect((await call('PUT', `/api/v1/census/submissions/${submissionId}`, {
+      cookie: paravet, json: { decision: 'approve' },
+    })).status).toBe(403);
+    const detail = await call('GET', `/api/v1/census/submissions/${submissionId}`, { cookie: encoder });
+    expect(detail.json.submission.records).toHaveLength(2);
+    const pendingBefore = await call('GET', `/api/v1/records/animals?archived=all`, { cookie: admin });
+    expect(pendingBefore.json.data.some((row: any) => row.id === animalId)).toBe(false);
+    const approved = await call('PUT', `/api/v1/census/submissions/${submissionId}`, {
+      cookie: encoder, json: { decision: 'approve', note: 'Reviewed against census form.' },
+    });
+    expect(approved.json).toMatchObject({ status: 'approved', applied: 2 });
+    const after = await call('GET', '/api/v1/records/animals?archived=all', { cookie: admin });
+    expect(after.json.data.some((row: any) => row.id === animalId)).toBe(true);
+    expect((await call('PUT', `/api/v1/census/submissions/${submissionId}`, {
+      cookie: admin, json: { decision: 'reject' },
+    })).status).toBe(403);
+
+    const rejectedId = crypto.randomUUID();
+    const rejectedRecordId = `TEST-CENSUS-${uniq}-rejected`;
+    expect((await call('POST', '/api/v1/census/submissions', {
+      cookie: paravet,
+      json: {
+        submissionId: rejectedId,
+        label: 'Rejected test census',
+        records: [{ dataset: 'animals', record: { id: rejectedRecordId, species: 'Cat', barangay: 'Tungkong Mangga' } }],
+      },
+    })).status).toBe(200);
+    const rejected = await call('PUT', `/api/v1/census/submissions/${rejectedId}`, {
+      cookie: admin, json: { decision: 'reject', note: 'Test rejection.' },
+    });
+    expect(rejected.json).toMatchObject({ status: 'rejected', applied: 0 });
+    const afterReject = await call('GET', '/api/v1/records/animals?archived=all', { cookie: admin });
+    expect(afterReject.json.data.some((row: any) => row.id === rejectedRecordId)).toBe(false);
+  });
+  it('blocks approval when a submitted record ID already belongs to another barangay', async () => {
+    const recordId = `TEST-CENSUS-${uniq}-collision`;
+    const original = { id: recordId, species: 'Dog', barangay: 'Muzon Proper', owner: 'Original record' };
+    await sql()`
+      insert into ekapon.dashboard_records (dataset, record_id, record_data, archived)
+      values ('animals', ${recordId}, ${sql().json(original)}, false)
+    `;
+
+    const submissionId = crypto.randomUUID();
+    expect((await call('POST', '/api/v1/census/submissions', {
+      cookie: paravet,
+      json: {
+        submissionId,
+        label: 'Cross-barangay collision test',
+        records: [{ dataset: 'animals', record: { id: recordId, species: 'Cat', barangay: 'Tungkong Mangga' } }],
+      },
+    })).status).toBe(200);
+    const approval = await call('PUT', `/api/v1/census/submissions/${submissionId}`, {
+      cookie: admin, json: { decision: 'approve' },
+    });
+    expect(approval.status).toBe(403);
+
+    const detail = await call('GET', '/api/v1/records/animals?archived=all', { cookie: admin });
+    expect(detail.json.data.find((row: any) => row.id === recordId)).toMatchObject(original);
+    const pending = await call('GET', `/api/v1/census/submissions/${submissionId}`, { cookie: admin });
+    expect(pending.json.submission.status).toBe('pending');
   });
   it('lists with search, filters, sorting, month/year and pagination', async () => {
     for (let i = 0; i < 2; i++) await call('POST', '/api/v1/accounts', { cookie: admin, json: { ...body(), firstName: 'Extra' + i, mobile: '09170000000' } });

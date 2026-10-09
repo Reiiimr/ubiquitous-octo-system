@@ -103,11 +103,17 @@ Setup and reference files:
       Adds dashboard records and public pre-listing storage to an existing
       earlier authentication/accounts database.
 
+  db\004_dashboard_roles.sql
+      One-time upgrade for an existing installation. Renames Admin to
+      SuperAdmin and Encoder to Admin, and adds maintenance/feature controls.
+      Do not run on a fresh database created from db\000_ekapon_schema.sql.
+
   docs\API-01-auth-and-accounts.md
       Existing authentication/account API contract.
 
   docs\API-02-dashboard.md
-      Dashboard record, import/undo, activity, and pre-listing API contract.
+      Dashboard record, import/undo, activity, pre-listing, admin control,
+      and database backup API contract.
 
   BACKEND-DEVELOPMENT-REPORT.txt
       Detailed implementation, progress, limitations, and validation report.
@@ -195,7 +201,9 @@ PATH A - NEW / EMPTY SUPABASE PROJECT
      database-role password. Keep a secure record of it.
   6. Run the edited role script once in the Supabase SQL Editor.
   7. Verify that ekapon_api is a login role and is a member of ekapon_admin.
-  8. Change the initial staff credentials as described in Section 6 before
+  8. The seeded `admin` account is SuperAdmin; `encoder` is Admin. Both are
+     seeded with the documented initial password. Change both before public use.
+  9. Change the initial staff credentials as described in Section 6 before
      enabling public use.
 
 PATH B - DATABASE ALREADY HAS THE EARLIER AUTH/ACCOUNTS SCHEMA
@@ -213,6 +221,8 @@ ekapon authentication/accounts objects.
      the role script: it creates the role only when absent and will not
      automatically change an existing role password.
   5. Change the initial staff credentials before public use.
+  6. Run db\004_dashboard_roles.sql once to map the existing Admin account to
+     SuperAdmin and Encoder account to Admin, and create role feature/maintenance controls.
 
 If the database has an unknown or substantially different schema, stop and
 inspect its current migrations/tables before applying either path. Do not
@@ -418,12 +428,15 @@ Test these checks against the deployed HTTPS URL:
   [ ] Confirm privacy notice, data retention, record correction/deletion and
       incident response with the organization.
   [ ] Confirm a tested backup/restore procedure before operational use.
+      The SuperAdmin database export is JSON and does not restore the database.
+      Configure and test Supabase's own backup/PITR recovery process separately.
   [ ] Review npm audit findings and plan dependency upgrades separately.
 
 Known security/feature boundaries:
 
   - Backend authorization for dashboard records is currently role-based
-    (Admin/Encoder). Barangay-scoped row-level security is not implemented.
+    (SuperAdmin/Admin). Paravet record access is restricted by the API to the
+    account's assigned barangay; PostgreSQL RLS policies are not implemented.
   - Operational data is not yet a fully normalized veterinary schema.
   - Login timing hardening for unknown accounts and SMS/email delivery of
     temporary passwords are not implemented.

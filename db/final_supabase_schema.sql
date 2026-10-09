@@ -1,3 +1,8 @@
+-- CityVet fresh-install Supabase schema.
+-- Paste and run this file once in the Supabase SQL Editor for a NEW project only.
+-- API login role setup is separate: edit and run db/001_create_api_role.sql.
+
+-- ===== Base schema: 000_ekapon_schema.sql =====
 -- e-Kapon auth/accounts API: fresh-install bootstrap.
 -- Run this before db/001_create_api_role.sql. No existing objects or data are
 -- dropped. Passwords are stored only as pgcrypto bcrypt hashes.
@@ -708,5 +713,62 @@ TO ekapon_admin;
 REVOKE ALL ON ALL TABLES IN SCHEMA ekapon FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA ekapon FROM PUBLIC;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA ekapon FROM PUBLIC;
+
+COMMIT;
+
+-- ===== Census submissions: 005_census_submissions.sql =====
+-- Paravet census forms are staged for review and never write directly to the
+-- approved dashboard registry.
+BEGIN;
+
+CREATE TABLE ekapon.census_submissions (
+    submission_id uuid PRIMARY KEY,
+    actor_id      bigint NOT NULL REFERENCES ekapon.accounts(id) ON DELETE RESTRICT,
+    barangay_id   integer NOT NULL REFERENCES ekapon.barangays(id) ON DELETE RESTRICT,
+    label         text NOT NULL CHECK (length(btrim(label)) BETWEEN 1 AND 160),
+    records       jsonb NOT NULL CHECK (
+        jsonb_typeof(records) = 'array'
+        AND jsonb_array_length(records) BETWEEN 1 AND 1000
+    ),
+    status        text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_by   bigint REFERENCES ekapon.accounts(id) ON DELETE RESTRICT,
+    reviewed_at   timestamptz,
+    review_note   text CHECK (review_note IS NULL OR length(review_note) <= 500),
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT census_submissions_review_state_check CHECK (
+        (status = 'pending' AND reviewed_by IS NULL AND reviewed_at IS NULL)
+        OR
+        (status IN ('approved', 'rejected') AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX census_submissions_status_time_idx
+    ON ekapon.census_submissions (status, created_at DESC);
+CREATE INDEX census_submissions_actor_time_idx
+    ON ekapon.census_submissions (actor_id, created_at DESC);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ekapon.census_submissions TO ekapon_admin;
+
+COMMIT;
+
+-- ===== Census submitter retention: 006_census_submitter_retention.sql =====
+-- Preserve census submission attribution without blocking account removal.
+BEGIN;
+
+ALTER TABLE ekapon.census_submissions
+    ADD COLUMN submitter_name text;
+
+UPDATE ekapon.census_submissions s
+   SET submitter_name = a.full_name
+  FROM ekapon.accounts a
+ WHERE a.id = s.actor_id;
+
+ALTER TABLE ekapon.census_submissions
+    ALTER COLUMN submitter_name SET NOT NULL,
+    ALTER COLUMN actor_id DROP NOT NULL,
+    DROP CONSTRAINT census_submissions_actor_id_fkey,
+    ADD CONSTRAINT census_submissions_actor_id_fkey
+        FOREIGN KEY (actor_id) REFERENCES ekapon.accounts(id) ON DELETE SET NULL;
 
 COMMIT;

@@ -9,14 +9,14 @@ import { conflict, unprocessable } from '../../../server/errors';
 
 const SORTS: Record<string, string> = { name: 'last_name', key: 'account_key', type: 'account_type', barangay: 'barangay', status: 'status', created: 'created_at' };
 const query = listQuery.extend({
-  type: z.enum(['Admin', 'Encoder', 'Paravet', 'User']).optional(),
+  type: z.enum(['SuperAdmin', 'Admin', 'Paravet', 'User']).optional(),
   barangay: z.string().trim().max(60).optional(),
   status: z.string().trim().max(40).optional(),
 });
 
 export default route({
   GET: async (c) => {
-    await requireAuth(c.req, { roles: ['Admin'] });
+    await requireAuth(c.req, { roles: ['SuperAdmin'] });
     const f = parse(query, c.query);
     if (f.sort && !SORTS[f.sort]) throw unprocessable('INVALID_SORT', `sort must be one of: ${Object.keys(SORTS).join(', ')}`);
     const where: string[] = ['x.archived = $1'];
@@ -36,7 +36,7 @@ export default route({
   },
 
   POST: async (c) => {
-    const s = await requireAuth(c.req, { roles: ['Admin'] });
+    const s = await requireAuth(c.req, { roles: ['SuperAdmin'] });
     const b = parse(createAccount, c.body);
     const [{ id: barangayId }] = await sql()`select ekapon.find_barangay(${b.barangay}) as id`;
     if (!barangayId) throw unprocessable('UNKNOWN_BARANGAY', 'Choose one of the 62 official barangays.', { field: 'barangay' });

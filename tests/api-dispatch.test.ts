@@ -5,6 +5,8 @@ import { dispatchApi } from '../server/api-dispatch';
 
 const paths = [
   '/api/v1/activity',
+  '/api/v1/admin/controls',
+  '/api/v1/admin/backup',
   '/api/v1/health',
   '/api/v1/accounts/archive',
   '/api/v1/accounts',
@@ -16,6 +18,8 @@ const paths = [
   '/api/v1/auth/me',
   '/api/v1/auth/set-password',
   '/api/v1/barangays',
+  '/api/v1/census/submissions',
+  '/api/v1/census/submissions/00000000-0000-4000-8000-000000000000',
   '/api/v1/prelistings',
   '/api/v1/records/owners',
   '/api/v1/records/owners/archive',

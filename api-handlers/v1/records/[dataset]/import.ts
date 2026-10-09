@@ -4,17 +4,33 @@ import { tx } from '../../../../server/db';
 import { requireAuth } from '../../../../server/auth';
 import { dataset, recordBatch } from '../../../../server/dashboard';
 import { conflict, forbidden, unprocessable } from '../../../../server/errors';
+import { appendCensusSubmission, type CensusRecord } from '../../../../server/censusSubmissions';
 
 const bodySchema = recordBatch.extend({
   batchId: z.string().uuid(),
   label: z.string().trim().min(1).max(160),
 });
+const PARAVET_DATASETS = new Set(['respondents', 'households', 'animals']);
 
 export default route({
   POST: async (c) => {
-    const session = await requireAuth(c.req, { roles: ['Admin', 'Encoder'] });
+    const session = await requireAuth(c.req, { roles: ['SuperAdmin', 'Admin', 'Paravet'] });
     const kind = dataset(c.query.dataset);
+    if (session.type === 'Paravet' && !PARAVET_DATASETS.has(kind)) throw forbidden('This dataset is not available to Paravets.');
     const body = parse(bodySchema, c.body);
+    if (session.type === 'Paravet') {
+      const barangayId = session.barangayId;
+      if (!barangayId) throw forbidden('Your account must be assigned to a barangay before importing records.');
+      const count = await tx(session.id, async (q) => appendCensusSubmission(q, {
+        submissionId: body.batchId,
+        actorId: session.id,
+        submitterName: session.name,
+        barangayId,
+        label: body.label,
+        records: body.records.map((record) => ({ dataset: kind as CensusRecord['dataset'], record })) as CensusRecord[],
+      }));
+      return ok({ submitted: body.records.length, recordCount: count, status: 'pending', submissionId: body.batchId });
+    }
     await tx(session.id, async (q) => {
       await q`
         insert into ekapon.dashboard_import_batches (batch_id, dataset, actor_id, label)
@@ -41,11 +57,13 @@ export default route({
           values (${body.batchId}::uuid, ${id}, ${Boolean(before)}, ${before?.record_data ?? null},
                   ${before?.archived ?? null}, ${JSON.stringify(record)}::jsonb)
           on conflict (batch_id, record_id) do update set after_data = excluded.after_data`;
-        await q`
-          insert into ekapon.dashboard_records (dataset, record_id, record_data, archived)
+        const saved = await q`
+          insert into ekapon.dashboard_records as current_record (dataset, record_id, record_data, archived)
           values (${kind}, ${id}, ${JSON.stringify(record)}::jsonb, false)
           on conflict (dataset, record_id) do update
-             set record_data = excluded.record_data, archived = false, updated_at = now()`;
+             set record_data = excluded.record_data, archived = false, updated_at = now()
+          returning record_id`;
+        if (!saved.length) throw forbidden('The record could not be saved.');
       }
     });
     return ok({ saved: body.records.length, batchId: body.batchId });

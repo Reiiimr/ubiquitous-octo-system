@@ -3,8 +3,18 @@ window.CVApi = (function () {
   'use strict';
   const base = '/api/v1';
   const datasets = ['owners', 'pets', 'paravets', 'respondents', 'households', 'animals', 'stubs', 'services', 'programs', 'participants'];
-  const state = { live: false, accounts: [], accountArchived: [], records: {}, archived: {}, prelistings: [], barangays: [], activity: [], me: null, dataReady: false };
+  const state = { live: false, accounts: [], accountArchived: [], records: {}, archived: {}, prelistings: [], censusSubmissions: [], barangays: [], activity: [], me: null, controls: null, dataReady: false, saveStatus: 'idle', lastSavedAt: null, saveError: '' };
   const apiError = error => window.dispatchEvent(new CustomEvent('cv-api-error', { detail: error && error.message ? error.message : 'The server request failed.' }));
+  const emitStatus = () => window.dispatchEvent(new CustomEvent('cv-api-status', {
+    detail: {
+      connected: state.live,
+      authenticated: Boolean(state.me),
+      dataReady: state.dataReady,
+      saveStatus: state.saveStatus,
+      lastSavedAt: state.lastSavedAt,
+      saveError: state.saveError,
+    },
+  }));
   function recordBatches(records) {
     const batches = [];
     let batch = [], bytes = 0;
@@ -24,12 +34,28 @@ window.CVApi = (function () {
   }
 
   async function request(method, path, body) {
-    const r = await fetch(base + path, {
-      method,
-      credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const isWrite = method !== 'GET';
+    if (isWrite) {
+      state.saveStatus = 'saving';
+      state.saveError = '';
+      emitStatus();
+    }
+    let r;
+    try {
+      r = await fetch(base + path, {
+        method,
+        credentials: 'same-origin',
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (error) {
+      if (isWrite) {
+        state.saveStatus = 'failed';
+        state.saveError = error.message || 'The request could not reach the server.';
+        emitStatus();
+      }
+      throw error;
+    }
     let data = null;
     try { data = await r.json(); } catch (e) { /* empty body */ }
     if (!r.ok) {
@@ -41,12 +67,23 @@ window.CVApi = (function () {
       err.status = r.status;
       err.code = data && data.error && data.error.code;
       err.details = data && data.error && data.error.details;
+      if (isWrite) {
+        state.saveStatus = 'failed';
+        state.saveError = err.message;
+        emitStatus();
+      }
       throw err;
+    }
+    if (isWrite) {
+      state.saveStatus = 'saved';
+      state.lastSavedAt = new Date().toISOString();
+      state.saveError = '';
+      emitStatus();
     }
     return data;
   }
 
-  const ready = (async () => {
+  async function checkConnection() {
     if (location.protocol === 'file:') return false;
     try {
       const c = new AbortController();
@@ -55,8 +92,11 @@ window.CVApi = (function () {
       const j = await r.json().catch(() => null);
       state.live = r.ok && j && j.ok === true;
     } catch (e) { state.live = false; }
+    emitStatus();
     return state.live;
-  })();
+  }
+
+  const ready = checkConnection();
 
   const row = a => ({ id: a.id, key: a.accountKey || a.username, type: a.accountType, name: a.fullName, firstName: a.firstName, middleName: a.middleName, lastName: a.lastName, suffix: a.suffix, barangay: a.barangay ? a.barangay.name : '', mobile: a.mobile || '', status: a.status, created: a.createdOn, linked: a.paravetId ? 'PV-' + String(a.paravetId).padStart(3, '0') : '', staff: !a.accountKey });
   async function fetchPages(path) {
@@ -68,7 +108,7 @@ window.CVApi = (function () {
     }
   }
   async function refreshAccounts() {
-    if (!state.live || !state.me || state.me.type !== 'Admin') return;
+    if (!state.live || !state.me || state.me.type !== 'SuperAdmin') return;
     try {
       const [active, archived] = await Promise.all([
         fetchPages('/accounts?sort=created&dir=desc&archived=false'),
@@ -81,7 +121,16 @@ window.CVApi = (function () {
   }
   async function refreshData() {
     if (!state.live || !state.me) return;
-    const loaded = await Promise.all(datasets.map(async kind => {
+    const roleDatasets = state.me.type === 'Paravet'
+      ? ['owners', 'pets', 'respondents', 'households', 'animals']
+      : datasets;
+    const visibleDatasets = roleDatasets.filter(kind => {
+      const feature = ['programs', 'participants', 'respondents', 'households', 'animals'].includes(kind) ? 'operations'
+        : kind === 'paravets' ? 'field-team' : 'registry';
+      return !state.controls || state.me.type === 'SuperAdmin'
+        || state.controls.access[`${state.me.type}:${feature}`] !== false;
+    });
+    const loaded = await Promise.all(visibleDatasets.map(async kind => {
       const rows = await fetchPages(`/records/${kind}?archived=all`);
       return [kind, rows];
     }));
@@ -95,8 +144,11 @@ window.CVApi = (function () {
     });
     state.records = records;
     state.archived = archived;
-    state.prelistings = await fetchPages('/prelistings');
-    state.activity = (await request('GET', '/activity?page=1&pageSize=500')).data;
+    state.prelistings = state.me.type !== 'Paravet' && (!state.controls || state.controls.access[`${state.me.type}:operations`] !== false)
+      ? await fetchPages('/prelistings') : [];
+    state.censusSubmissions = await fetchPages('/census/submissions?status=all');
+    state.activity = state.me.type === 'Paravet' || state.controls?.access[`${state.me.type}:reports`] === false
+      ? [] : (await request('GET', '/activity?page=1&pageSize=500')).data;
     state.dataReady = true;
     window.dispatchEvent(new Event('cv-data'));
   }
@@ -130,7 +182,15 @@ window.CVApi = (function () {
     if (!live) return;
     request('GET', '/auth/me').then(async r => {
       state.me = r.account;
+      emitStatus();
+      const controls = await request('GET', '/admin/controls');
+      state.controls = {
+        maintenanceMode: controls.maintenanceMode,
+        role: controls.role,
+        access: Object.fromEntries(controls.featureAccess.map(item => [`${item.accountType}:${item.featureKey}`, item.enabled])),
+      };
       await refresh();
+      emitStatus();
     }).catch(e => {
       if (e.status !== 401) apiError(e);
     });
@@ -142,6 +202,22 @@ window.CVApi = (function () {
   async function saveRecords(kind, records) {
     if (!state.live) throw new Error('The server is not connected.');
     for (const batch of recordBatches(records)) await request('POST', `/records/${kind}`, { records: batch });
+    await refreshData();
+  }
+  async function submitCensusSubmission(label, records, submissionId = crypto.randomUUID()) {
+    if (!state.live || state.me?.type !== 'Paravet') throw new Error('Only signed-in Paravets can submit census data.');
+    for (const batch of recordBatches(records)) {
+      await request('POST', '/census/submissions', {
+        submissionId,
+        label,
+        records: batch.map(item => ({ dataset: item.dataset, record: item.record })),
+      });
+    }
+    await refreshData();
+    return submissionId;
+  }
+  async function reviewCensusSubmission(submissionId, decision, note = '') {
+    await request('PUT', `/census/submissions/${encodeURIComponent(submissionId)}`, { decision, note });
     await refreshData();
   }
   async function archiveRecords(kind, ids, archived) {
@@ -187,7 +263,18 @@ window.CVApi = (function () {
   return {
     get live() { return state.live; },
     get dataReady() { return state.dataReady; },
+    get me() { return state.me; },
+    get controls() { return state.controls; },
     ready,
+    checkConnection,
+    status: () => ({
+      connected: state.live,
+      authenticated: Boolean(state.me),
+      dataReady: state.dataReady,
+      saveStatus: state.saveStatus,
+      lastSavedAt: state.lastSavedAt,
+      saveError: state.saveError,
+    }),
     request,
     refreshAccounts,
     refreshData,
@@ -195,9 +282,12 @@ window.CVApi = (function () {
     records: kind => state.records[kind] || [],
     archived: () => Object.assign({}, state.archived, state.accountArchived.length ? { accounts: state.accountArchived } : {}),
     prelistings: () => state.prelistings,
+    censusSubmissions: () => state.censusSubmissions,
     barangays: () => state.barangays,
     activity: () => state.activity,
     saveRecords,
+    submitCensusSubmission,
+    reviewCensusSubmission,
     archiveRecords,
     importRecords,
     undoImport,
